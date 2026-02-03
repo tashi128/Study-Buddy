@@ -1,0 +1,5 @@
+Machine Learning is transforming industries worldwide.
+Artificial Intelligence enables computers to perform human-like tasks.
+Neural Networks are inspired by the human brain structure.
+Deep Learning uses multiple layers for complex pattern recognition.
+Data Science extracts insights from large datasets.
