@@ -1,3 +1,10 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env variables
+
+api_key = os.getenv("OPENAI_API_KEY")
+
 import streamlit as st
 import random
 from PyPDF2 import PdfReader
