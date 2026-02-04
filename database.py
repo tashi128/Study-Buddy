@@ -3,3 +3,4 @@ class StudyDatabase:
         return True
 
 db = StudyDatabase()
+
