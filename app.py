@@ -170,3 +170,6 @@ elif menu == "Progress":
 
 st.divider()
 st.caption("🧸 Study Buddy — Built with DeepSeek AI")
+
+
+
