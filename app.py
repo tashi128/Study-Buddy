@@ -1,4 +1,3 @@
-# app.py - AI-Powered Study Buddy
 import os
 import json
 import requests
@@ -8,7 +7,7 @@ from PyPDF2 import PdfReader
 import docx
 
 from processor import processor
-from question_generator import generator
+from question_generator import generator  # fallback if AI fails
 
 # ================= ENV =================
 load_dotenv()
@@ -27,7 +26,11 @@ def read_docx(file):
     return "\n".join(p.text for p in doc.paragraphs)
 
 # ================= AI QUESTION GENERATOR =================
-def generate_ai_questions(text, n=10):
+def generate_ai_questions(text: str, n=10):
+    """
+    Generates AI questions using DeepSeek API.
+    Returns a list of dicts: {question, options, correct}
+    """
     url = "https://api.deepseek.com/chat/completions"
     headers = {
         "Authorization": f"Bearer {DEEPEEK_API_KEY}",
@@ -36,6 +39,10 @@ def generate_ai_questions(text, n=10):
 
     prompt = f"""
 Create {n} multiple-choice questions from the text below.
+Each question should have:
+- 1 correct answer
+- 3 incorrect but believable answers
+
 Return ONLY JSON in this format:
 
 [
@@ -61,6 +68,7 @@ TEXT:
         res.raise_for_status()
         content = res.json()["choices"][0]["message"]["content"]
         return json.loads(content)
+
     except Exception:
         st.warning("AI failed. Using fallback questions.")
         return generator.generate_question_set(st.session_state.topics, n)
@@ -86,7 +94,6 @@ st.caption("AI-powered study assistant")
 # ================= UPLOAD NOTES =================
 if menu == "Upload Notes":
     file = st.file_uploader("Upload TXT / PDF / DOCX", type=["txt", "pdf", "docx"])
-
     if file:
         if file.name.endswith(".txt"):
             text = read_txt(file)
@@ -97,8 +104,8 @@ if menu == "Upload Notes":
 
         if st.button("Process Notes"):
             st.session_state.notes = text
-            lecture_texts = [text.replace("\n", " ")]  # flatten text for processor
-            st.session_state.topics = processor.extract_topics_from_lectures(lecture_texts)
+            lecture_texts = [text.replace("\n", " ")]  # flatten text
+            st.session_state.topics = processor.extract_topics_from_texts(lecture_texts)
             st.success("Notes processed successfully!")
 
 # ================= TOPICS =================
@@ -108,7 +115,7 @@ elif menu == "Topics":
     else:
         st.subheader("Extracted Topics with Importance %")
         for t in st.session_state.topics:
-            st.info(f"{t['name']} - Importance: {t.get('importance_score',0)}%")
+            st.info(f"{t['name']} - Importance: {t['importance_score']}%")
 
 # ================= PRACTICE =================
 elif menu == "Practice":
@@ -135,7 +142,6 @@ elif menu == "Practice":
             else:
                 q = st.session_state.questions[st.session_state.index]
                 ans = st.radio(q["question"], q["options"], key=f"q_{st.session_state.index}")
-
                 if st.button("Submit Answer"):
                     st.session_state.answers.append(ans)
                     if ans == q["correct"]:
