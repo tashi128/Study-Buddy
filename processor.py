@@ -21,3 +21,4 @@ class DocumentProcessor:
         return topics
 
 processor = DocumentProcessor()
+
