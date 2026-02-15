@@ -178,7 +178,7 @@ Format:
 
         return parsed
     
-# ================================== AI STUDY PLAN GENERATION===================
+# ================================== AI STUDY PLAN GENERATION ===================
 
 def generate_detailed_study_plan(topics, notes, total_days=None, hours_per_day=None, total_hours=None):
     from ai_engine import call_ai
