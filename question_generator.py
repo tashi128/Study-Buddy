@@ -178,32 +178,26 @@ Format:
 
         return parsed
     
-# ================================== AI STUDY PLAN GENERATION ===================
+    # ================= GENERATE DETAILED STUDY PLAN =================
+    def generate_detailed_study_plan(self, topics, notes, total_days=None, hours_per_day=None, total_hours=None):
 
-def generate_detailed_study_plan(topics, notes, total_days=None, hours_per_day=None, total_hours=None):
-    from ai_engine import call_ai
-    import json
+        topic_summary = ""
+        for t in topics:
+            topic_summary += f"- {t['name']} ({t['importance_score']}% importance)\n"
 
-    topic_summary = ""
-    for t in topics:
-        topic_summary += f"- {t['name']} ({t['importance_score']}% importance)\n"
-
-    time_instruction = ""
-
-    if total_hours:
-        time_instruction = f"""
+        if total_hours:
+            time_instruction = f"""
 Student has {total_hours} total hours available.
 Create an hourly plan dividing topics smartly based on importance.
 """
-
-    else:
-        time_instruction = f"""
+        else:
+            time_instruction = f"""
 Student has {total_days} days.
 Each day has approximately {hours_per_day} study hours.
 Create a daily + hourly breakdown.
 """
 
-    prompt = f"""
+        prompt = f"""
 You are an expert academic planner.
 
 Student Notes Summary:
@@ -218,12 +212,12 @@ Rules:
 - Allocate more time to higher importance topics
 - Include:
   - Concept learning
-  - Active recall
-  - Practice questions
-  - Revision blocks
-  - Mock test
-- Be very specific (e.g., "Solve 15 MCQs from X topic")
-- Make plan structured and practical
+  - Active recall sessions
+  - Practice questions with numbers (e.g., Solve 20 MCQs)
+  - Daily revision blocks
+  - Final mock test
+- Be extremely specific and actionable
+- Make it practical and realistic
 
 Return STRICT JSON format:
 
@@ -239,23 +233,20 @@ Return STRICT JSON format:
     ]
   }}
 ]
+
+Do NOT wrap in markdown.
+Do NOT add explanation.
 """
 
-    try:
-        response = call_ai(prompt, temperature=0.4)
+        ai_response = self.call_ai(prompt, temperature=0.4)
 
-        content = response.strip()
-        content = content.replace("```json", "").replace("```", "").strip()
+        parsed = self.safe_parse_json(ai_response)
 
-        start = content.find("[")
-        end = content.rfind("]") + 1
-        json_text = content[start:end]
+        if not parsed:
+            print("⚠ Study plan generation failed")
+            return []
 
-        return json.loads(json_text)
-
-    except Exception as e:
-        print("Study plan JSON parsing failed:", e)
-        return []
+        return parsed
 
 
 # Global instance
