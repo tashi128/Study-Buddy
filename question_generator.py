@@ -177,6 +177,85 @@ Format:
             return []
 
         return parsed
+    
+==================================AI STUDY PLAN GENERATION===================
+
+def generate_detailed_study_plan(topics, notes, total_days=None, hours_per_day=None, total_hours=None):
+    from ai_engine import call_ai
+    import json
+
+    topic_summary = ""
+    for t in topics:
+        topic_summary += f"- {t['name']} ({t['importance_score']}% importance)\n"
+
+    time_instruction = ""
+
+    if total_hours:
+        time_instruction = f"""
+Student has {total_hours} total hours available.
+Create an hourly plan dividing topics smartly based on importance.
+"""
+
+    else:
+        time_instruction = f"""
+Student has {total_days} days.
+Each day has approximately {hours_per_day} study hours.
+Create a daily + hourly breakdown.
+"""
+
+    prompt = f"""
+You are an expert academic planner.
+
+Student Notes Summary:
+{notes[:4000]}
+
+Topics with importance:
+{topic_summary}
+
+{time_instruction}
+
+Rules:
+- Allocate more time to higher importance topics
+- Include:
+  - Concept learning
+  - Active recall
+  - Practice questions
+  - Revision blocks
+  - Mock test
+- Be very specific (e.g., "Solve 15 MCQs from X topic")
+- Make plan structured and practical
+
+Return STRICT JSON format:
+
+[
+  {{
+    "day": "Day 1",
+    "schedule": [
+        {{
+          "time": "9:00 - 10:00",
+          "task": "Study concept of ...",
+          "topic": "Topic name"
+        }}
+    ]
+  }}
+]
+"""
+
+    try:
+        response = call_ai(prompt, temperature=0.4)
+
+        content = response.strip()
+        content = content.replace("```json", "").replace("```", "").strip()
+
+        start = content.find("[")
+        end = content.rfind("]") + 1
+        json_text = content[start:end]
+
+        return json.loads(json_text)
+
+    except Exception as e:
+        print("Study plan JSON parsing failed:", e)
+        return []
 
 
 # Global instance

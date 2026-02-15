@@ -241,85 +241,66 @@ Notes:
 # ================= STUDY PLAN =================
 elif menu == "Study Plan":
 
-    st.markdown("## 🗓 AI Study Plan Generator")
-
     if not st.session_state.topics:
         st.info("Upload notes first")
+
     else:
+        st.markdown("## 🗓 Smart Study Planner")
 
-        days = st.number_input("Number of Days to Prepare", min_value=1, max_value=30, value=1)
-        hours_per_day = st.number_input("Study Hours Per Day", min_value=1, max_value=12, value=4)
+        plan_type = st.radio(
+            "Choose Plan Type",
+            ["Total Hours", "Days + Hours Per Day"]
+        )
 
-        if st.button("Generate AI Study Plan"):
+        if plan_type == "Total Hours":
+            total_hours = st.slider("How many total hours do you have?", 1, 50, 6)
 
-            with st.spinner("🧠 AI is creating your personalized study plan..."):
+            if st.button("Generate Smart Plan"):
+                with st.spinner("Generating personalized AI study plan..."):
+                    plan = generator.generate_detailed_study_plan(
+                        st.session_state.topics,
+                        st.session_state.notes,
+                        total_hours=total_hours
+                    )
+                    st.session_state.study_plan = plan
 
-                weak_topics = st.session_state.get("weak_topics", [])
+        else:
+            total_days = st.slider("Number of Days", 1, 14, 3)
+            hours_per_day = st.slider("Hours Per Day", 1, 12, 4)
 
-                # Sort topics by importance
-                topics_sorted = sorted(
-                    st.session_state.topics,
-                    key=lambda x: x["importance_score"],
-                    reverse=True
-                )
+            if st.button("Generate Smart Plan"):
+                with st.spinner("Generating personalized AI study plan..."):
+                    plan = generator.generate_detailed_study_plan(
+                        st.session_state.topics,
+                        st.session_state.notes,
+                        total_days=total_days,
+                        hours_per_day=hours_per_day
+                    )
+                    st.session_state.study_plan = plan
 
-                total_hours = days * hours_per_day
+        # DISPLAY PLAN BEAUTIFULLY
+        if "study_plan" in st.session_state and st.session_state.study_plan:
 
-                # Weighted distribution
-                total_importance = sum(t["importance_score"] for t in topics_sorted)
+            for day in st.session_state.study_plan:
 
-                plan = []
-                topic_hours = {}
+                st.markdown(f"### 📅 {day['day']}")
 
-                for t in topics_sorted:
-                    weight = t["importance_score"] / total_importance
-                    allocated = round(weight * total_hours)
-
-                    # Boost weak topics
-                    if t["name"] in weak_topics:
-                        allocated += 1
-
-                    topic_hours[t["name"]] = max(1, allocated)
-
-                # Generate day-wise plan
-                current_day = 1
-                current_hour = 1
-
-                for topic, hrs in topic_hours.items():
-                    for _ in range(hrs):
-
-                        if current_hour > hours_per_day:
-                            current_day += 1
-                            current_hour = 1
-
-                        if current_day > days:
-                            break
-
-                        plan.append({
-                            "day": current_day,
-                            "hour": current_hour,
-                            "topic": topic
-                        })
-
-                        current_hour += 1
-
-                # Display plan
-                st.markdown("## 📚 Your Study Timetable")
-
-                for d in range(1, days + 1):
-                    st.markdown(f"### 📅 Day {d}")
-
-                    day_plan = [p for p in plan if p["day"] == d]
-
-                    if not day_plan:
-                        st.write("Revision / Rest")
-                    else:
-                        for p in day_plan:
-                            st.write(f"⏰ Hour {p['hour']} → {p['topic']}")
-
-                    st.divider()
-
-                st.success("✅ Plan generated based on topic importance & weaknesses!")
+                for item in day["schedule"]:
+                    st.markdown(
+                        f"""
+                        <div style="
+                            background:#1E1E1E;
+                            padding:15px;
+                            border-radius:12px;
+                            margin-bottom:10px;
+                        ">
+                        <b>{item['time']}</b><br>
+                        <span style="color:#8B5CF6">{item['topic']}</span><br>
+                        {item['task']}
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
 
 # ================= PROGRESS =================
