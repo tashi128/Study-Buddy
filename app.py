@@ -239,26 +239,88 @@ Notes:
                 st.write(summary)
 
 # ================= STUDY PLAN =================
-elif menu=="Study Plan":
-    if not st.session_state.notes: st.info("Upload notes first")
+elif menu == "Study Plan":
+
+    st.markdown("## 🗓 AI Study Plan Generator")
+
+    if not st.session_state.topics:
+        st.info("Upload notes first")
     else:
-        weak_topics = st.session_state.get("weak_topics",[])
-        if st.button("Generate Study Plan"):
-            with st.spinner("Generating Study Plan..."):
-                prompt = f"""
-Generate a 7-day personalized study plan for a student.
 
-Topics:
-{[t['name'] for t in st.session_state.topics]}
+        days = st.number_input("Number of Days to Prepare", min_value=1, max_value=30, value=1)
+        hours_per_day = st.number_input("Study Hours Per Day", min_value=1, max_value=12, value=4)
 
-Weak Topics:
-{weak_topics}
+        if st.button("Generate AI Study Plan"):
 
-Distribute focus based on importance and weaknesses.
-"""
-                plan = call_ai(prompt)
-                st.markdown("### 📅 Personalized Study Plan")
-                st.write(plan)
+            with st.spinner("🧠 AI is creating your personalized study plan..."):
+
+                weak_topics = st.session_state.get("weak_topics", [])
+
+                # Sort topics by importance
+                topics_sorted = sorted(
+                    st.session_state.topics,
+                    key=lambda x: x["importance_score"],
+                    reverse=True
+                )
+
+                total_hours = days * hours_per_day
+
+                # Weighted distribution
+                total_importance = sum(t["importance_score"] for t in topics_sorted)
+
+                plan = []
+                topic_hours = {}
+
+                for t in topics_sorted:
+                    weight = t["importance_score"] / total_importance
+                    allocated = round(weight * total_hours)
+
+                    # Boost weak topics
+                    if t["name"] in weak_topics:
+                        allocated += 1
+
+                    topic_hours[t["name"]] = max(1, allocated)
+
+                # Generate day-wise plan
+                current_day = 1
+                current_hour = 1
+
+                for topic, hrs in topic_hours.items():
+                    for _ in range(hrs):
+
+                        if current_hour > hours_per_day:
+                            current_day += 1
+                            current_hour = 1
+
+                        if current_day > days:
+                            break
+
+                        plan.append({
+                            "day": current_day,
+                            "hour": current_hour,
+                            "topic": topic
+                        })
+
+                        current_hour += 1
+
+                # Display plan
+                st.markdown("## 📚 Your Study Timetable")
+
+                for d in range(1, days + 1):
+                    st.markdown(f"### 📅 Day {d}")
+
+                    day_plan = [p for p in plan if p["day"] == d]
+
+                    if not day_plan:
+                        st.write("Revision / Rest")
+                    else:
+                        for p in day_plan:
+                            st.write(f"⏰ Hour {p['hour']} → {p['topic']}")
+
+                    st.divider()
+
+                st.success("✅ Plan generated based on topic importance & weaknesses!")
+
 
 # ================= PROGRESS =================
 elif menu=="Progress":
