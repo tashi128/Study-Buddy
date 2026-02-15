@@ -17,11 +17,40 @@ st.set_page_config(
     layout="wide"
 )
 
+# ================= THEME TOGGLE =================
+if "theme" not in st.session_state:
+    st.session_state.theme = "Dark"
+
+theme_choice = st.sidebar.toggle("🌗 Dark Mode", value=True)
+
+if theme_choice:
+    st.session_state.theme = "Dark"
+    bg_color = "#0E1117"
+    card_color = "#1E1E1E"
+    text_color = "white"
+else:
+    st.session_state.theme = "Light"
+    bg_color = "#F5F5F5"
+    card_color = "white"
+    text_color = "black"
+
+st.markdown(
+    f"""
+    <style>
+    .stApp {{
+        background-color: {bg_color};
+        color: {text_color};
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # ================= ENV =================
 load_dotenv()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-# ================= AI CALL FUNCTION =================
+# ================= AI CALL =================
 def call_ai(prompt, temperature=0.3):
     if not DEEPSEEK_API_KEY:
         return "API key missing."
@@ -47,7 +76,7 @@ def call_ai(prompt, temperature=0.3):
     except Exception as e:
         return f"AI Error: {str(e)}"
 
-# ================= SESSION STATE =================
+# ================= SESSION =================
 if "notes" not in st.session_state:
     st.session_state.notes = ""
     st.session_state.topics = []
@@ -81,30 +110,12 @@ menu = st.sidebar.radio(
     ]
 )
 
-# ================= UPLOAD =================
-if menu=="Upload Notes":
-    file = st.file_uploader("Upload TXT / PDF / DOCX", type=["txt","pdf","docx"])
-    if file:
-        if file.name.endswith(".txt"): text = read_txt(file)
-        elif file.name.endswith(".pdf"): text = read_pdf(file)
-        else: text = read_docx(file)
-        if st.button("Analyze Notes"):
-            st.session_state.notes = text
-            st.session_state.topics = processor.extract_topics_from_texts([text])
-            st.success("✅ Notes analyzed successfully!")
-
-# ================= TOPICS =================
-elif menu=="Topics":
-    if not st.session_state.topics: st.info("Upload notes first")
-    else:
-        for t in st.session_state.topics:
-            st.write(f"### {t['name']}")
-            st.progress(t["importance_score"]/100)
-
 # ================= PRACTICE =================
-elif menu=="Practice":
+if menu=="Practice":
+
     if not st.session_state.notes:
         st.warning("Upload notes first")
+
     else:
         if st.button("Start AI Practice Test"):
             with st.spinner("Generating Practice Questions..."):
@@ -115,128 +126,74 @@ elif menu=="Practice":
                 st.session_state.score = 0
                 st.session_state.answers = []
             st.rerun()
+
         if st.session_state.questions:
-            if st.session_state.index >= len(st.session_state.questions):
-                total = len(st.session_state.questions)
+
+            total_q = len(st.session_state.questions)
+            current_q = st.session_state.index
+
+            # ===== PROGRESS BAR =====
+            progress_ratio = current_q / total_q
+            st.progress(progress_ratio)
+            st.markdown(f"### Question {current_q+1} of {total_q}")
+
+            if current_q >= total_q:
+
                 score = st.session_state.score
-                st.success(f"Final Score: {score}/{total} ({score/total*100:.1f}%)")
-                st.markdown("## 📋 Review")
-                for a in st.session_state.answers:
-                    st.write(f"**Q:** {a['question']}")
-                    st.write(f"Your Answer: {a['selected']}")
-                    if str(a["selected"]).strip().lower() == str(a["correct"]).strip().lower(): 
-                        st.success(f"✅ Correct Answer: {a['correct']}")
-                    else: 
-                        st.error(f"❌ Correct Answer: {a['correct']}")
-                    st.divider()
+                st.success(f"Final Score: {score}/{total_q} ({score/total_q*100:.1f}%)")
+
             else:
-                q = st.session_state.questions[st.session_state.index]
-                ans_type = q.get("type","mcq")
-                if ans_type=="mcq": ans = st.radio(q["question"], q["options"])
-                elif ans_type=="fill": ans = st.text_input(q["question"])
-                elif ans_type=="definition": ans = st.text_area(q["question"])
-                else: ans = st.text_input(q["question"])
+                q = st.session_state.questions[current_q]
+                ans = st.radio(q["question"], q["options"])
+
                 if st.button("Submit Answer"):
-                    if not ans: st.warning("Select/Enter answer first"); st.stop()
+                    if not ans:
+                        st.warning("Select an answer")
+                        st.stop()
+
                     st.session_state.answers.append({
                         "question": q["question"],
                         "topic": q["topic"],
                         "selected": ans,
                         "correct": q["correct"]
                     })
-                    if str(ans).strip().lower() == str(q["correct"]).strip().lower():
-                        st.session_state.score +=1
+
+                    if ans.strip().lower() == q["correct"].strip().lower():
+                        st.session_state.score += 1
                         st.success("✅ Correct!")
                     else:
                         st.error(f"❌ Correct Answer: {q['correct']}")
+
                     st.session_state.index += 1
                     st.rerun()
 
-
-# ================= FLASHCARDS =================
-elif menu == "Flashcards":
+# ================= AI DOUBT CHAT =================
+elif menu=="AI Doubt Chat":
 
     if not st.session_state.notes:
         st.info("Upload notes first")
 
     else:
+        question = st.text_input("Ask your question")
 
-        topic_names = [t["name"] for t in st.session_state.topics]
-        selected_topic = st.selectbox("Select Topic", topic_names)
-
-        if st.button("Generate Flashcards"):
-
-            with st.spinner("Creating beautiful flashcards..."):
-
-                cards = generator.generate_flashcards(
-                    selected_topic,
-                    st.session_state.notes
-                )
-
-                st.session_state.flashcards = cards
-
-        # ===== DISPLAY FLASHCARDS =====
-        if "flashcards" in st.session_state and st.session_state.flashcards:
-
-            for card in st.session_state.flashcards:
-
-                st.markdown(f"""
-                <div style="
-                    background-color: #ffffff;
-                    padding: 30px;
-                    border-radius: 20px;
-                    box-shadow: 0px 8px 20px rgba(0,0,0,0.1);
-                    margin-bottom: 25px;
-                    width: 350px;
-                ">
-                    <h3 style="color:#7C3AED;">{card['front']}</h3>
-                    <hr>
-                    <p style="font-size:16px; line-height:1.6;">
-                        {card['back']}
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
-
-# ================= AI DOUBT CHAT =================
-elif menu=="AI Doubt Chat":
-    if not st.session_state.notes: st.info("Upload notes first")
-    else:
-        q = st.text_input("Ask your question")
         if st.button("Ask AI"):
-            prompt = f"""
-You are an academic assistant.
 
-Answer using uploaded notes AND relevant topics intelligently.
-If answer is not directly in notes, provide an accurate answer based on the context.
+            with st.spinner("Generating your answer..."):
+
+                prompt = f"""
+Answer clearly and concisely.
 
 Notes:
 {st.session_state.notes[:4000]}
-
-Topics:
-{[t['name'] for t in st.session_state.topics]}
 
 Question:
-{q}
+{question}
 """
-            response = call_ai(prompt, temperature=0.3)
-            st.markdown("### AI Answer")
+
+                response = call_ai(prompt)
+
+            st.markdown("### 🤖 AI Answer")
             st.write(response)
-
-# ================= AI NOTES SUMMARY =================
-elif menu=="AI Notes Summary":
-    if not st.session_state.notes: st.info("Upload notes first")
-    else:
-        if st.button("Generate Summary"):
-            with st.spinner("Generating Summary..."):
-                prompt = f"""
-Summarize notes into key points, definitions, and 5-bullet summary.
-
-Notes:
-{st.session_state.notes[:4000]}
-"""
-                summary = call_ai(prompt)
-                st.markdown("### 📘 Notes Summary")
-                st.write(summary)
 
 # ================= STUDY PLAN =================
 elif menu == "Study Plan":
@@ -253,7 +210,7 @@ elif menu == "Study Plan":
         )
 
         if plan_type == "Total Hours":
-            total_hours = st.slider("How many total hours do you have?", 1, 50, 6)
+            total_hours = st.slider("Total Hours", 1, 50, 6)
 
             if st.button("Generate Smart Plan"):
                 with st.spinner("Generating personalized AI study plan..."):
@@ -278,7 +235,6 @@ elif menu == "Study Plan":
                     )
                     st.session_state.study_plan = plan
 
-        # DISPLAY PLAN BEAUTIFULLY
         if "study_plan" in st.session_state and st.session_state.study_plan:
 
             for day in st.session_state.study_plan:
@@ -289,7 +245,7 @@ elif menu == "Study Plan":
                     st.markdown(
                         f"""
                         <div style="
-                            background:#1E1E1E;
+                            background:{card_color};
                             padding:15px;
                             border-radius:12px;
                             margin-bottom:10px;
@@ -302,23 +258,6 @@ elif menu == "Study Plan":
                         unsafe_allow_html=True
                     )
 
-
-# ================= PROGRESS =================
-elif menu=="Progress":
-    if not st.session_state.answers: st.info("Take a test first")
-    else:
-        st.markdown("## 📊 Progress Report")
-        stats = defaultdict(lambda: {"correct":0,"total":0})
-        for a in st.session_state.answers:
-            stats[a["topic"]]["total"] +=1
-            if str(a["selected"]).strip().lower() == str(a["correct"]).strip().lower():
-                stats[a["topic"]]["correct"] +=1
-        for topic, s in stats.items():
-            acc = s["correct"]/s["total"]
-            st.write(f"### {topic}: {s['correct']}/{s['total']} correct ({acc*100:.1f}%)")
-            if acc>=0.8: st.success("Strong understanding ✅")
-            elif acc>=0.5: st.warning("Needs more effort ⚠️")
-            else: st.error("High focus required ❗")
-
+# ================= FOOTER =================
 st.divider()
 st.caption("Your AI Study Buddy 🚀")
