@@ -76,6 +76,21 @@ def call_ai(prompt, temperature=0.3):
     except Exception as e:
         return f"AI Error: {str(e)}"
 
+# ================= SMALL HELPERS (added; does not affect other pages) =================
+def extract_json_array(text: str):
+    """Try to extract a JSON array from AI output even if it includes extra text."""
+    if not text:
+        return None
+    cleaned = text.strip().replace("```json", "").replace("```", "").strip()
+    start = cleaned.find("[")
+    end = cleaned.rfind("]") + 1
+    if start == -1 or end <= 0:
+        return None
+    try:
+        return json.loads(cleaned[start:end])
+    except:
+        return None
+
 # ================= SESSION STATE =================
 if "notes" not in st.session_state:
     st.session_state.notes = ""
@@ -85,6 +100,24 @@ if "notes" not in st.session_state:
     st.session_state.index = 0
     st.session_state.score = 0
     st.session_state.weak_topics = []
+
+# --- Practice Quiz Helper state (added; only used in Practice) ---
+if "quiz_chat_messages" not in st.session_state:
+    st.session_state.quiz_chat_messages = [
+        {"role": "assistant", "content": "Hi 👋 I’m your Quiz Helper 🌸. Ask me anything about this quiz — hints, explanations, or concepts!"}
+    ]
+
+if "helper_open" not in st.session_state:
+    st.session_state.helper_open = True
+
+if "practice_helper_initialized" not in st.session_state:
+    st.session_state.practice_helper_initialized = False  # auto-open once
+
+if "clear_helper_input" not in st.session_state:
+    st.session_state.clear_helper_input = False
+
+if "quiz_helper_input" not in st.session_state:
+    st.session_state.quiz_helper_input = ""
 
 # ================= FILE READERS =================
 def read_txt(file): return clean_text(file.read().decode("utf-8"))
@@ -112,14 +145,44 @@ menu = st.sidebar.radio(
 
 # ================= UPLOAD =================
 if menu=="Upload Notes":
+    st.markdown("### 📄 Upload Notes or Paste Text")
+
     file = st.file_uploader("Upload TXT / PDF / DOCX", type=["txt","pdf","docx"])
+
+    pasted = st.text_area(
+        "Or paste your notes here",
+        height=220,
+        placeholder="Paste your notes text here..."
+    )
+
+    text = ""
+
+    # 1) Read from file if uploaded
     if file:
-        if file.name.endswith(".txt"): text = read_txt(file)
-        elif file.name.endswith(".pdf"): text = read_pdf(file)
-        else: text = read_docx(file)
-        if st.button("Analyze Notes"):
+        if file.name.endswith(".txt"):
+            text = read_txt(file)
+        elif file.name.endswith(".pdf"):
+            text = read_pdf(file)
+        else:
+            text = read_docx(file)
+
+    # 2) If pasted text exists, prefer it
+    if pasted.strip():
+        text = clean_text(pasted)
+
+    if st.button("Analyze Notes"):
+        if not text.strip():
+            st.warning("Please upload a file or paste some text first.")
+        else:
             st.session_state.notes = text
             st.session_state.topics = processor.extract_topics_from_texts([text])
+
+            # Optional: reset quiz state so old questions don’t stay around
+            st.session_state.questions = []
+            st.session_state.answers = []
+            st.session_state.index = 0
+            st.session_state.score = 0
+
             st.success("✅ Notes analyzed successfully!")
 
 # ================= TOPICS =================
@@ -135,58 +198,270 @@ elif menu=="Practice":
     if not st.session_state.notes:
         st.warning("Upload notes first")
     else:
-        if st.button("Start AI Practice Test"):
-            with st.spinner("Generating Practice Questions..."):
-                st.session_state.questions = generator.generate_smart_questions(
-                    st.session_state.topics, st.session_state.notes
-                )
-                st.session_state.index = 0
-                st.session_state.score = 0
-                st.session_state.answers = []
-            st.rerun()
+        # Auto-open helper only the first time you enter Practice
+        if not st.session_state.practice_helper_initialized:
+            st.session_state.helper_open = True
+            st.session_state.practice_helper_initialized = True
 
-        if st.session_state.questions:
-            total_q = len(st.session_state.questions)
-            current_q = st.session_state.index
+        # Clear helper input safely BEFORE widget is created
+        if st.session_state.clear_helper_input:
+            st.session_state.quiz_helper_input = ""
+            st.session_state.clear_helper_input = False
 
-            # ===== PROGRESS BAR =====
-            st.progress(current_q / total_q)
-            st.markdown(f"### Question {current_q+1} of {total_q}")
+        col_quiz, col_side = st.columns([2, 1], gap="large")
 
-            if current_q >= total_q:
-                total = len(st.session_state.questions)
-                score = st.session_state.score
-                st.success(f"Final Score: {score}/{total} ({score/total*100:.1f}%)")
-                st.markdown("## 📋 Review")
-                for a in st.session_state.answers:
-                    st.write(f"**Q:** {a['question']}")
-                    st.write(f"Your Answer: {a['selected']}")
-                    if str(a["selected"]).strip().lower() == str(a["correct"]).strip().lower(): 
-                        st.success(f"✅ Correct Answer: {a['correct']}")
-                    else: 
-                        st.error(f"❌ Correct Answer: {a['correct']}")
-                    st.divider()
-            else:
-                q = st.session_state.questions[current_q]
-                ans_type = q.get("type","mcq")
-                if ans_type=="mcq": ans = st.radio(q["question"], q["options"])
-                elif ans_type=="fill": ans = st.text_input(q["question"])
-                elif ans_type=="definition": ans = st.text_area(q["question"])
-                else: ans = st.text_input(q["question"])
-                if st.button("Submit Answer"):
-                    if not ans: st.warning("Select/Enter answer first"); st.stop()
-                    st.session_state.answers.append({
-                        "question": q["question"],
-                        "topic": q["topic"],
-                        "selected": ans,
-                        "correct": q["correct"]
-                    })
-                    if str(ans).strip().lower() == str(q["correct"]).strip().lower():
-                        st.session_state.score +=1
-                        st.success("✅ Correct!")
+        # -------------------- LEFT: QUIZ --------------------
+        with col_quiz:
+            if st.button("Start AI Practice Test"):
+                with st.spinner("Generating Practice Questions..."):
+                    topics_list = [t["name"] for t in st.session_state.topics]
+
+                    prompt = f"""
+Generate a mixed practice quiz from the notes.
+
+NOTES:
+{st.session_state.notes[:4000]}
+
+TOPICS:
+{topics_list}
+
+Return STRICT JSON ARRAY ONLY (no markdown, no extra text).
+
+Create 12 questions total with this mix:
+- 6 MCQ
+- 3 fill in the blanks
+- 3 short answers (1-3 lines)
+
+Format examples:
+[
+  {{
+    "type": "mcq",
+    "topic": "Topic name",
+    "question": "....",
+    "options": ["A","B","C","D"],
+    "correct": "exact option text"
+  }},
+  {{
+    "type": "fill",
+    "topic": "Topic name",
+    "question": "The _____ is responsible for ...",
+    "correct": "missing word/phrase"
+  }},
+  {{
+    "type": "short",
+    "topic": "Topic name",
+    "question": "Explain ... in 2-3 lines",
+    "correct": "a model short answer"
+  }}
+]
+"""
+
+                    ai_out = call_ai(prompt, temperature=0.2)
+                    parsed = extract_json_array(ai_out)
+
+                    if isinstance(parsed, list) and len(parsed) > 0:
+                        st.session_state.questions = parsed
                     else:
-                        st.error(f"❌ Correct Answer: {q['correct']}")
-                    st.session_state.index += 1
+                        # fallback to your generator if AI JSON fails
+                        st.session_state.questions = generator.generate_smart_questions(
+                            st.session_state.topics, st.session_state.notes
+                        )
+
+                    st.session_state.index = 0
+                    st.session_state.score = 0
+                    st.session_state.answers = []
+                st.rerun()
+
+            if st.session_state.questions:
+                total_q = len(st.session_state.questions)
+                current_q = st.session_state.index
+
+                # ===== PROGRESS BAR =====
+                st.progress(min(current_q / total_q, 1.0))
+                st.markdown(f"### Question {min(current_q+1, total_q)} of {total_q}")
+
+                if current_q >= total_q:
+                    total = len(st.session_state.questions)
+                    score = st.session_state.score
+                    st.success(f"Final Score: {score}/{total} ({score/total*100:.1f}%)")
+                    st.markdown("## 📋 Review")
+
+                    for a in st.session_state.answers:
+                        st.write(f"**Q:** {a['question']}")
+                        st.write(f"Your Answer: {a['selected']}")
+
+                        if a.get("is_correct") is True:
+                            st.success(f"✅ Correct Answer: {a['correct']}")
+                        else:
+                            st.error(f"❌ Correct Answer: {a['correct']}")
+                            if a.get("feedback"):
+                                st.info(f"💡 Feedback: {a['feedback']}")
+                        st.divider()
+
+                else:
+                    q = st.session_state.questions[current_q]
+                    q_type = str(q.get("type", "mcq")).lower().strip()
+
+                    st.markdown(f"**Type:** {q_type.upper()}  •  **Topic:** {q.get('topic','General')}")
+
+                    # Render input by type
+                    if q_type == "mcq":
+                        ans = st.radio(q["question"], q.get("options", []), key=f"q_{current_q}")
+                    elif q_type == "fill":
+                        ans = st.text_input(q["question"], key=f"q_{current_q}")
+                    else:  # short answer
+                        ans = st.text_area(q["question"], key=f"q_{current_q}", height=130)
+
+                    if st.button("Submit Answer"):
+                        if not str(ans).strip():
+                            st.warning("Select/Enter answer first")
+                            st.stop()
+
+                        correct = q.get("correct", "")
+                        is_correct = False
+                        feedback = ""
+
+                        # MCQ + Fill: case-insensitive exact match
+                        if q_type in ["mcq", "fill"]:
+                            is_correct = str(ans).strip().lower() == str(correct).strip().lower()
+                        else:
+                            # Short: quick AI grading (fallback to basic)
+                            grade_prompt = f"""
+You are grading a student's short answer using the notes.
+
+NOTES:
+{st.session_state.notes[:2500]}
+
+QUESTION:
+{q.get("question","")}
+
+MODEL ANSWER:
+{correct}
+
+STUDENT ANSWER:
+{ans}
+
+Return STRICT JSON only:
+{{
+  "is_correct": true/false,
+  "feedback": "1-2 short sentences"
+}}
+"""
+                            grade_out = call_ai(grade_prompt, temperature=0.0)
+                            grade_json = None
+                            try:
+                                grade_json = json.loads(grade_out.replace("```json", "").replace("```", "").strip())
+                            except:
+                                grade_json = None
+
+                            if isinstance(grade_json, dict):
+                                is_correct = bool(grade_json.get("is_correct", False))
+                                feedback = str(grade_json.get("feedback", "")).strip()
+                            else:
+                                # fallback: simple containment
+                                is_correct = str(correct).strip().lower() in str(ans).strip().lower()
+                                feedback = "Auto-checked (basic). Try to match key points from the model answer."
+
+                        st.session_state.answers.append({
+                            "question": q.get("question", ""),
+                            "topic": q.get("topic", "General"),
+                            "selected": ans,
+                            "correct": correct,
+                            "type": q_type,
+                            "is_correct": is_correct,
+                            "feedback": feedback
+                        })
+
+                        if is_correct:
+                            st.session_state.score += 1
+                            st.success("✅ Correct!")
+                        else:
+                            st.error(f"❌ Correct Answer: {correct}")
+
+                        st.session_state.index += 1
+                        st.rerun()
+
+        # -------------------- RIGHT: TIP + QUIZ HELPER CHATBOT --------------------
+        with col_side:
+            st.markdown(f"""
+            <div style="background:{card_color}; padding:15px; border-radius:12px; margin-bottom:10px;">
+            <b>💡 Tip</b><br>
+            <span style="opacity:0.85;">Use Quiz Helper 🌸 for hints and explanations.</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+            toggle_label = "Hide 🌸 Quiz Helper" if st.session_state.helper_open else "Show 🌸 Quiz Helper"
+            if st.button(toggle_label, key="helper_toggle_btn"):
+                st.session_state.helper_open = not st.session_state.helper_open
+                st.rerun()
+
+            if st.session_state.helper_open:
+                # Current question context
+                current_q_obj = None
+                if st.session_state.questions and st.session_state.index < len(st.session_state.questions):
+                    current_q_obj = st.session_state.questions[st.session_state.index]
+
+                st.markdown(f"""
+                <div style="background:{card_color}; padding:15px; border-radius:12px;">
+                <b>🌸 Quiz Helper</b><br>
+                <span style="opacity:0.85;">Ask for hints, explanations, or concepts. I won’t reveal answers unless you ask.</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.divider()
+
+                for msg in st.session_state.quiz_chat_messages:
+                    with st.chat_message(msg["role"]):
+                        st.write(msg["content"])
+
+                user_msg = st.text_input("Ask about the quiz…", key="quiz_helper_input")
+                c1, c2 = st.columns([1, 1])
+                send = c1.button("Send", key="quiz_helper_send")
+                clear = c2.button("Clear", key="quiz_helper_clear")
+
+                if clear:
+                    st.session_state.quiz_chat_messages = [
+                        {"role": "assistant", "content": "Hi 👋 I’m your Quiz Helper 🌸. Ask me anything about this quiz — hints, explanations, or concepts!"}
+                    ]
+                    st.session_state.clear_helper_input = True
+                    st.rerun()
+
+                if send and str(user_msg).strip():
+                    st.session_state.quiz_chat_messages.append({"role": "user", "content": user_msg.strip()})
+
+                    topics_list = [t["name"] for t in st.session_state.topics]
+                    context = f"""
+NOTES:
+{st.session_state.notes[:2500]}
+
+TOPICS:
+{topics_list}
+"""
+                    if current_q_obj:
+                        context += f"""
+CURRENT QUESTION:
+Type: {current_q_obj.get('type','mcq')}
+Topic: {current_q_obj.get('topic','General')}
+Question: {current_q_obj.get('question','')}
+Options: {current_q_obj.get('options', [])}
+"""
+
+                    ai_prompt = f"""
+You are a quiz tutor. Help the student understand the question and topic.
+Do NOT reveal the correct answer directly unless the student asks explicitly.
+Give hints, reasoning steps, and examples.
+
+{context}
+
+Student question:
+{user_msg.strip()}
+"""
+
+                    with st.spinner("🌸 Thinking..."):
+                        ai_reply = call_ai(ai_prompt, temperature=0.3)
+
+                    st.session_state.quiz_chat_messages.append({"role": "assistant", "content": ai_reply})
+                    st.session_state.clear_helper_input = True
                     st.rerun()
 
 # ================= FLASHCARDS =================
@@ -332,4 +607,3 @@ elif menu=="Progress":
 
 st.divider()
 st.caption("Your AI Study Buddy 🚀")
-
