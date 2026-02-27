@@ -1,10 +1,12 @@
 import os
 import json
 import time
-import requests
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
-load_dotenv()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 
@@ -42,6 +44,13 @@ class QuestionGenerator:
         last_err = None
         for attempt in range(retries + 1):
             try:
+                # import requests lazily so this module can be imported without requests installed
+                try:
+                    import requests
+                except Exception as e:
+                    print("⚠ The 'requests' package is required for AI calls. Install it to enable AI features.")
+                    return None
+
                 response = requests.post(url, headers=headers, json=payload, timeout=timeout)
                 response.raise_for_status()
                 result = response.json()
@@ -398,6 +407,7 @@ Format:
                 out.append({"front": str(c["front"]).strip(), "back": str(c["back"]).strip()})
 
         return out
+
 
     # ================= GENERATE DETAILED STUDY PLAN =================
     def generate_detailed_study_plan(self, topics, notes, total_days=None, hours_per_day=None, total_hours=None):

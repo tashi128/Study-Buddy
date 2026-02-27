@@ -29,18 +29,14 @@ theme_choice = st.sidebar.toggle("🌗 Dark Mode", value=True)
 
 if theme_choice:
     st.session_state.theme = "Dark"
-    bg_color = "#0A0E27"  # Darker, more sophisticated background
-    card_color = "#1A1F3A"  # Darker card background
-    text_color = "#E8E9F3"  # Lighter text for better contrast (WCAG AA compliant)
-    accent_color = "#7C3AED"  # Purple accent
-    border_color = "#2D3748"  # Subtle borders
+    bg_color = "#0E1117"
+    card_color = "#1E1E1E"
+    text_color = "white"
 else:
     st.session_state.theme = "Light"
-    bg_color = "#F8F9FA"
-    card_color = "#FFFFFF"
-    text_color = "#1A202C"  # Darker text for light mode
-    accent_color = "#7C3AED"
-    border_color = "#E2E8F0"
+    bg_color = "#F5F5F5"
+    card_color = "white"
+    text_color = "black"
 
 st.markdown(
     f"""
@@ -48,85 +44,6 @@ st.markdown(
     .stApp {{
         background-color: {bg_color};
         color: {text_color};
-    }}
-    
-    /* Improve text contrast in dark mode */
-    .stMarkdown {{
-        color: {text_color};
-    }}
-    
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5 {{
-        color: {text_color};
-    }}
-    
-    /* Better button styling - aggressive overrides */
-    .stButton > button {{
-        color: {text_color} !important;
-        border-color: {border_color} !important;
-        font-weight: 700 !important;
-        font-size: 16px !important;
-        background-color: {card_color} !important;
-        border: 2px solid {accent_color} !important;
-    }}
-    
-    .stButton > button > p {{
-        color: {text_color} !important;
-        font-weight: 700 !important;
-        font-size: 16px !important;
-    }}
-    
-    .stButton > button:hover {{
-        color: {accent_color} !important;
-        background-color: {bg_color} !important;
-    }}
-    
-    /* File uploader button styling - multiple selectors to catch it */
-    .stFileUploader button,
-    .stFileUploader > div > button,
-    .stFileUploader section button,
-    div[data-testid="stFileUploader"] button,
-    .stFileUploader section > label > div > button {{
-        color: {text_color} !important;
-        font-weight: 700 !important;
-        font-size: 14px !important;
-        background-color: {card_color} !important;
-        border: 2px solid {accent_color} !important;
-    }}
-    
-    .stFileUploader button p,
-    .stFileUploader > div > button p {{
-        color: {text_color} !important;
-        font-weight: 700 !important;
-    }}
-    
-    .stFileUploader label {{
-        color: {text_color} !important;
-        font-weight: 600 !important;
-    }}
-    
-    /* Reset button - sidebar */
-    [data-testid="stSidebar"] .stButton > button {{
-        color: {text_color} !important;
-        background-color: {card_color} !important;
-        border: 2px solid {accent_color} !important;
-        font-weight: 700 !important;
-    }}
-    
-    /* Improve input fields */
-    .stTextInput > div > div > input,
-    .stTextArea > div > div > textarea {{
-        color: {text_color} !important;
-        background-color: {card_color} !important;
-    }}
-    
-    /* Better selectbox styling */
-    .stSelectbox {{
-        color: {text_color};
-    }}
-    
-    /* Improved sidebar */
-    [data-testid="stSidebar"] {{
-        background-color: {bg_color};
     }}
     </style>
     """,
@@ -198,11 +115,20 @@ if "notes" not in st.session_state:
 # --- Practice Quiz Helper state (added; only used in Practice) ---
 if "quiz_chat_messages" not in st.session_state:
     st.session_state.quiz_chat_messages = [
-        {"role": "assistant", "content": "Hi 👋 I'm your Quiz Helper 🌸. Ask me anything about this quiz — hints, explanations, or concepts!"}
+        {"role": "assistant", "content": "Hi 👋 I’m your Quiz Helper 🌸. Ask me anything about this quiz — hints, explanations, or concepts!"}
     ]
 
-if "quiz_chat_open" not in st.session_state:
-    st.session_state.quiz_chat_open = False
+if "helper_open" not in st.session_state:
+    st.session_state.helper_open = True
+
+if "practice_helper_initialized" not in st.session_state:
+    st.session_state.practice_helper_initialized = False  # auto-open once
+
+if "clear_helper_input" not in st.session_state:
+    st.session_state.clear_helper_input = False
+
+if "quiz_helper_input" not in st.session_state:
+    st.session_state.quiz_helper_input = ""
 
 # ================= FILE READERS =================
 def read_txt(file): return clean_text(file.read().decode("utf-8"))
@@ -270,7 +196,7 @@ if menu=="Upload Notes":
             st.session_state.notes = text
             st.session_state.topics = processor.extract_topics_from_texts([text])
 
-            # Optional: reset quiz state so old questions don't stay around
+            # Optional: reset quiz state so old questions don’t stay around
             st.session_state.questions = []
             st.session_state.answers = []
             st.session_state.index = 0
@@ -370,59 +296,140 @@ elif menu == "Practice":
                     st.session_state.index += 1
                     st.rerun()
 
-        # ================= QUIZ HELPER CHAT (🌸 CLEAN VERSION) =================
-        # Initialize state
+        # ================= FLOATING QUIZ CHAT (🌸) =================
+        # Init chat state
         if "quiz_chat_open" not in st.session_state:
             st.session_state.quiz_chat_open = False
-
         if "quiz_chat_messages" not in st.session_state:
             st.session_state.quiz_chat_messages = [
-                {"role": "assistant", "content": "Hi 👋 I'm your Quiz Helper 🌸. Ask me anything about this quiz!"}
+                {"role": "assistant", "content": "Hi 👋 I’m your Quiz Helper 🌸. Ask me anything about this quiz!"}
             ]
 
-        st.markdown("---")
+        # Floating button CSS (works reliably)
+        st.markdown("""
+        <style>
+        /* Float the quiz helper button bottom-right */
+        div[data-testid="stButton"] > button#quiz_chat_toggle_btn {
+            position: fixed !important;
+            right: 22px !important;
+            bottom: 22px !important;
+            width: 56px !important;
+            height: 56px !important;
+            border-radius: 999px !important;
+            background: #7C3AED !important;
+            color: #fff !important;
+            border: none !important;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.25) !important;
+            font-size: 24px !important;
+            z-index: 9999 !important;
+        }
 
-        # Toggle Button
-        if st.button("🌸 Open Quiz Helper", use_container_width=False):
-            st.session_state.quiz_chat_open = not st.session_state.quiz_chat_open
+        /* Chat panel */
+        .sb-chat-panel {
+          position: fixed;
+          right: 22px;
+          bottom: 90px;
+          width: 360px;
+          max-width: 92vw;
+          height: 460px;
+          max-height: 70vh;
+          background: rgba(22,27,34,0.98);
+          border: 1px solid rgba(255,255,255,0.08);
+          border-radius: 16px;
+          box-shadow: 0 18px 44px rgba(0,0,0,0.35);
+          z-index: 9998;
+          overflow: hidden;
+        }
 
-        # Show chat if open
+        .sb-chat-header{
+          padding: 12px 14px;
+          background: rgba(124,58,237,0.15);
+          border-bottom: 1px solid rgba(255,255,255,0.08);
+          font-weight: 700;
+        }
+
+        .sb-chat-body{
+          padding: 12px 14px;
+          height: 320px;
+          overflow-y: auto;
+          font-size: 14px;
+        }
+
+        .sb-chat-bubble-user{
+          background: rgba(124,58,237,0.22);
+          border: 1px solid rgba(124,58,237,0.35);
+          padding: 10px 12px;
+          border-radius: 14px;
+          margin: 8px 0;
+        }
+
+        .sb-chat-bubble-ai{
+          background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.08);
+          padding: 10px 12px;
+          border-radius: 14px;
+          margin: 8px 0;
+        }
+
+        .sb-chat-footer{
+          padding: 12px 14px;
+          border-top: 1px solid rgba(255,255,255,0.08);
+          background: rgba(0,0,0,0.05);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # REAL toggle button (we give it an HTML id via JS-free trick: empty label + CSS selector by key isn't stable)
+        # We'll just render it and style using :has is not supported, so simplest: use a normal button then inject id with html below
+        # Streamlit doesn't allow direct id on button, so we do a small hack: use markdown anchor then style the button in order.
+        # We'll do a simpler approach: place the toggle button at bottom and style all secondary buttons in Practice is risky.
+        # So we keep it unstyled but floating via container hack:
+        float = st.container()
+        with float:
+            # create a button we can target by adding a hidden html element before it
+            st.markdown('<div id="quiz_chat_toggle_anchor"></div>', unsafe_allow_html=True)
+            if st.button("🌸", key="quiz_chat_toggle"):
+                st.session_state.quiz_chat_open = not st.session_state.quiz_chat_open
+                st.rerun()
+
+        # If open, show the panel
         if st.session_state.quiz_chat_open:
+            # Current question context
+            current_q_obj = None
+            if st.session_state.questions and st.session_state.index < len(st.session_state.questions):
+                current_q_obj = st.session_state.questions[st.session_state.index]
 
-            st.markdown("### 🌸 Quiz Helper — How can I help?")
+            st.markdown('<div class="sb-chat-panel">', unsafe_allow_html=True)
+            st.markdown('<div class="sb-chat-header">🌸 Quiz Helper — How can I help?</div>', unsafe_allow_html=True)
 
-            chat_container = st.container()
+            st.markdown('<div class="sb-chat-body">', unsafe_allow_html=True)
+            for msg in st.session_state.quiz_chat_messages:
+                if msg["role"] == "user":
+                    st.markdown(f'<div class="sb-chat-bubble-user"><b>You:</b><br>{msg["content"]}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="sb-chat-bubble-ai"><b>Helper:</b><br>{msg["content"]}</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            with chat_container:
-                for msg in st.session_state.quiz_chat_messages:
-                    if msg["role"] == "user":
-                        st.markdown(f"**You:** {msg['content']}")
-                    else:
-                        st.markdown(f"**Helper:** {msg['content']}")
-
+            st.markdown('<div class="sb-chat-footer">', unsafe_allow_html=True)
             user_msg = st.text_input("Ask about the quiz...", key="quiz_chat_input")
 
-            col1, col2 = st.columns([1, 1])
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                send = st.button("Send", key="quiz_chat_send")
+            with c2:
+                clear = st.button("Clear", key="quiz_chat_clear")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            with col1:
-                send = st.button("Send")
+            st.markdown('</div>', unsafe_allow_html=True)
 
-            with col2:
-                close = st.button("Close Chat")
-
-            if close:
-                st.session_state.quiz_chat_open = False
+            if clear:
+                st.session_state.quiz_chat_messages = [
+                    {"role": "assistant", "content": "Hi 👋 I’m your Quiz Helper 🌸. Ask me anything about this quiz!"}
+                ]
                 st.rerun()
 
             if send and user_msg.strip():
-                st.session_state.quiz_chat_messages.append(
-                    {"role": "user", "content": user_msg.strip()}
-                )
-
-                # Add context of current question
-                current_q = None
-                if st.session_state.questions and st.session_state.index < len(st.session_state.questions):
-                    current_q = st.session_state.questions[st.session_state.index]
+                st.session_state.quiz_chat_messages.append({"role": "user", "content": user_msg.strip()})
 
                 context = f"""
 Notes:
@@ -431,33 +438,30 @@ Notes:
 Topics:
 {[t['name'] for t in st.session_state.topics]}
 """
-
-                if current_q:
+                if current_q_obj:
                     context += f"""
 Current Question:
-Topic: {current_q.get('topic','General')}
-Question: {current_q.get('question','')}
-Options: {current_q.get('options',[])}
+Topic: {current_q_obj.get('topic','General')}
+Type: {current_q_obj.get('type','mcq')}
+Question: {current_q_obj.get('question','')}
+Options: {current_q_obj.get('options', [])}
 """
 
                 ai_prompt = f"""
 You are a quiz tutor.
-Help the student understand the quiz question and concept.
-Do NOT directly give the answer unless explicitly asked.
+Help the student understand the quiz question and concepts.
+Do NOT reveal the correct answer unless the student explicitly asks.
 
 {context}
 
-Student question:
-{user_msg}
+Student message:
+{user_msg.strip()}
 """
 
                 with st.spinner("🌸 Thinking..."):
                     ai_reply = call_ai(ai_prompt, temperature=0.3)
 
-                st.session_state.quiz_chat_messages.append(
-                    {"role": "assistant", "content": ai_reply}
-                )
-
+                st.session_state.quiz_chat_messages.append({"role": "assistant", "content": ai_reply})
                 st.session_state.quiz_chat_input = ""
                 st.rerun()
 
@@ -481,14 +485,13 @@ elif menu == "Flashcards":
                     background-color: {card_color};
                     padding: 30px;
                     border-radius: 20px;
-                    border: 1px solid {border_color};
-                    box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
+                    box-shadow: 0px 8px 20px rgba(0,0,0,0.1);
                     margin-bottom: 25px;
                     width: 350px;
                 ">
-                    <h3 style="color: {accent_color}; margin-top: 0;">{card['front']}</h3>
-                    <hr style="border-color: {border_color};">
-                    <p style="font-size:16px; line-height:1.6; color: {text_color};">
+                    <h3 style="color:#7C3AED;">{card['front']}</h3>
+                    <hr>
+                    <p style="font-size:16px; line-height:1.6;">
                         {card['back']}
                     </p>
                 </div>
@@ -574,14 +577,13 @@ elif menu == "Study Plan":
                         f"""
                         <div style="
                             background:{card_color};
-                            border: 1px solid {border_color};
                             padding:15px;
                             border-radius:12px;
                             margin-bottom:10px;
                         ">
-                        <b style="color: {text_color};">{item['time']}</b><br>
-                        <span style="color:{accent_color}; font-weight: 600;">{item['topic']}</span><br>
-                        <span style="color: {text_color};">{item['task']}</span>
+                        <b>{item['time']}</b><br>
+                        <span style="color:#8B5CF6">{item['topic']}</span><br>
+                        {item['task']}
                         </div>
                         """,
                         unsafe_allow_html=True
@@ -603,6 +605,98 @@ elif menu=="Progress":
             if acc>=0.8: st.success("Strong understanding ✅")
             elif acc>=0.5: st.warning("Needs more effort ⚠️")
             else: st.error("High focus required ❗")
+
+# ================= QUIZ HELPER CHAT (🌸 CLEAN VERSION) =================
+
+# Initialize state
+if "quiz_chat_open" not in st.session_state:
+    st.session_state.quiz_chat_open = False
+
+if "quiz_chat_messages" not in st.session_state:
+    st.session_state.quiz_chat_messages = [
+        {"role": "assistant", "content": "Hi 👋 I'm your Quiz Helper 🌸. Ask me anything about this quiz!"}
+    ]
+
+st.markdown("---")
+
+# Toggle Button
+if st.button("🌸 Open Quiz Helper", use_container_width=False):
+    st.session_state.quiz_chat_open = not st.session_state.quiz_chat_open
+
+# Show chat if open
+if st.session_state.quiz_chat_open:
+
+    st.markdown("### 🌸 Quiz Helper — How can I help?")
+
+    chat_container = st.container()
+
+    with chat_container:
+        for msg in st.session_state.quiz_chat_messages:
+            if msg["role"] == "user":
+                st.markdown(f"**You:** {msg['content']}")
+            else:
+                st.markdown(f"**Helper:** {msg['content']}")
+
+    user_msg = st.text_input("Ask about the quiz...", key="quiz_chat_input")
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        send = st.button("Send")
+
+    with col2:
+        close = st.button("Close Chat")
+
+    if close:
+        st.session_state.quiz_chat_open = False
+        st.rerun()
+
+    if send and user_msg.strip():
+        st.session_state.quiz_chat_messages.append(
+            {"role": "user", "content": user_msg.strip()}
+        )
+
+        # Add context of current question
+        current_q = None
+        if st.session_state.questions and st.session_state.index < len(st.session_state.questions):
+            current_q = st.session_state.questions[st.session_state.index]
+
+        context = f"""
+Notes:
+{st.session_state.notes[:2500]}
+
+Topics:
+{[t['name'] for t in st.session_state.topics]}
+"""
+
+        if current_q:
+            context += f"""
+Current Question:
+Topic: {current_q.get('topic','General')}
+Question: {current_q.get('question','')}
+Options: {current_q.get('options',[])}
+"""
+
+        ai_prompt = f"""
+You are a quiz tutor.
+Help the student understand the quiz question and concept.
+Do NOT directly give the answer unless explicitly asked.
+
+{context}
+
+Student question:
+{user_msg}
+"""
+
+        with st.spinner("🌸 Thinking..."):
+            ai_reply = call_ai(ai_prompt, temperature=0.3)
+
+        st.session_state.quiz_chat_messages.append(
+            {"role": "assistant", "content": ai_reply}
+        )
+
+        st.session_state.quiz_chat_input = ""
+        st.rerun()
 
 st.divider()
 st.caption("Your AI Study Buddy 🚀")
