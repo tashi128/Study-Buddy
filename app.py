@@ -1,9 +1,10 @@
 import os
 import json
+from pathlib import Path
 import streamlit as st
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
 except Exception:
     pass
 
@@ -13,6 +14,65 @@ from collections import defaultdict
 from processor import processor
 from question_generator import generator
 from utils import clean_text
+from auth import init_auth_state, is_authenticated, get_current_user, logout, auth_db
+from landing import show_landing_page
+from oauth_handler import OAuthHandler
+
+# Initialize authentication state
+init_auth_state()
+
+# ================= OAUTH CALLBACK HANDLER =================
+# Handle Google OAuth callback
+if "error" in st.query_params:
+    oauth_error = st.query_params.get("error")
+    st.error(f"Google Sign-In failed: {oauth_error}")
+    if oauth_error == "redirect_uri_mismatch":
+        st.info(f"Using client_id: {OAuthHandler.GOOGLE_CLIENT_ID}")
+        st.info(f"Using redirect_uri: {OAuthHandler._get_google_redirect_uri()}")
+
+if "code" in st.query_params and not st.session_state.get("authenticated"):
+    # Streamlit query params can return list-like values; normalize to string
+    auth_code = st.query_params.get("code")
+    if isinstance(auth_code, list):
+        auth_code = auth_code[0] if auth_code else None
+
+    if auth_code:
+        token_result = OAuthHandler.exchange_google_code_for_token(auth_code)
+        if token_result.get("success"):
+            user_info_result = OAuthHandler.get_google_user_info(token_result.get("access_token"))
+            if user_info_result.get("success"):
+                user_info = user_info_result["user_info"]
+                email = user_info.get("email", "")
+                name = user_info.get("name", "")
+
+                login_result = auth_db.oauth_login_or_register(name, email)
+                if not login_result.get("success"):
+                    st.error("OAuth login/register failed.")
+                    st.info(f"token_result: {token_result}")
+                    st.info(f"user_info_result: {user_info_result}")
+                    st.info(f"login_result: {login_result}")
+                    st.stop()
+
+                st.session_state.authenticated = True
+                st.session_state.user_id = login_result.get("user_id")
+                st.session_state.user_name = login_result.get("name")
+                st.session_state.user_email = email
+                st.session_state.session_token = login_result.get("session_token")
+
+                # Remove code from URL, then rerun into authenticated app state
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.error("Failed to fetch Google user profile.")
+                st.info(f"user_info_result: {user_info_result}")
+        else:
+            st.error("Failed to exchange Google authorization code.")
+            st.info(f"token_result: {token_result}")
+
+# Check if user is authenticated - if not, show landing page
+if not is_authenticated():
+    show_landing_page()
+    st.stop()
 
 # ================= PAGE CONFIG =================
 st.set_page_config(
@@ -133,8 +193,98 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# ================= ABOUT SECTION STYLING =================
+about_card_bg = "rgba(255, 253, 251, 0.78)" if st.session_state.theme == "Light" else "rgba(30, 23, 45, 0.78)"
+about_border = "rgba(211, 139, 158, 0.36)" if st.session_state.theme == "Light" else "rgba(213, 165, 188, 0.32)"
+about_shadow = "rgba(169, 103, 116, 0.24)" if st.session_state.theme == "Light" else "rgba(21, 8, 34, 0.38)"
+about_muted = "rgba(77, 45, 53, 0.84)" if st.session_state.theme == "Light" else "rgba(232, 214, 225, 0.86)"
+
+st.markdown(
+    f"""
+    <style>
+    .about-card {{
+        margin-top: 4px;
+        border: 1px solid {about_border};
+        border-radius: 24px;
+        padding: 22px;
+        background:
+            radial-gradient(circle at 92% 12%, rgba(244, 177, 196, 0.2) 0%, rgba(244, 177, 196, 0) 34%),
+            radial-gradient(circle at 10% 90%, rgba(249, 220, 208, 0.2) 0%, rgba(249, 220, 208, 0) 36%),
+            {about_card_bg};
+        box-shadow: 0 18px 48px {about_shadow};
+        backdrop-filter: blur(7px);
+    }}
+    .about-name {{
+        font-size: clamp(30px, 4vw, 42px);
+        font-weight: 800;
+        line-height: 1.05;
+        margin: 0 0 8px 0;
+        letter-spacing: -0.5px;
+    }}
+    .about-role {{
+        display: inline-block;
+        border-radius: 999px;
+        border: 1px solid {about_border};
+        padding: 7px 14px;
+        font-size: 13px;
+        font-weight: 700;
+        margin-bottom: 10px;
+        color: {about_muted};
+        background: rgba(255,255,255,0.22);
+    }}
+    .about-copy {{
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.72;
+        color: {about_muted};
+    }}
+    .about-metric {{
+        display: inline-block;
+        margin: 8px 8px 0 0;
+        border-radius: 11px;
+        border: 1px solid {about_border};
+        padding: 7px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        color: {about_muted};
+        background: rgba(255,255,255,0.22);
+    }}
+    .about-photo-wrap {{
+        border-radius: 20px;
+        border: 1px solid {about_border};
+        padding: 8px;
+        background: rgba(255,255,255,0.16);
+    }}
+    .about-note {{
+        margin-top: 8px;
+        font-size: 12px;
+        opacity: 0.8;
+    }}
+    .about-top-cta {{
+        display: flex;
+        justify-content: flex-end;
+        margin: 2px 0 10px 0;
+    }}
+    .about-top-link {{
+        display: inline-block;
+        padding: 9px 18px;
+        border-radius: 999px;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #ffffff;
+        background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+        box-shadow: 0 8px 24px rgba(124, 58, 237, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # ================= ENV =================
-load_dotenv()
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 # ================= AI CALL FUNCTION =================
@@ -185,6 +335,77 @@ def extract_json_array(text: str):
     except:
         return None
 
+
+def _resolve_about_photo():
+    """Resolve profile photo from configured fixed path only."""
+    candidates = [
+        os.getenv("ABOUT_PHOTO_PATH", "").strip(),
+        "/Users/tashi/Desktop/ai-study-assistant/about_photo.JPG",
+        "/Users/tashi/Desktop/Internship Stuff/about-photo.jpg",
+        "/Users/tashi/Desktop/Internship Stuff/about-photo.jpeg",
+        "/Users/tashi/Desktop/Internship Stuff/about-photo.png",
+        "/Users/tashi/Desktop/Internship Stuff/profile.jpg",
+        "/Users/tashi/Desktop/Internship Stuff/profile.jpeg",
+        "/Users/tashi/Desktop/Internship Stuff/profile.png",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+    return None
+
+
+def render_about_section():
+    """Render founder/about hero section on top of the main page."""
+    col_photo, col_text = st.columns([1, 2.1], gap="large")
+
+    with col_photo:
+        photo = _resolve_about_photo()
+        if photo:
+            st.image(photo, use_container_width=True)
+        else:
+            st.markdown(
+                f"""
+                <div style="
+                    width:100%;
+                    aspect-ratio: 4 / 5;
+                    border-radius:14px;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    font-weight:800;
+                    font-size:46px;
+                    color:{text_color};
+                    background: linear-gradient(145deg, rgba(247,203,212,0.52), rgba(245,228,214,0.52));
+                ">ZS</div>
+                <p class="about-note">Upload your profile photo from the sidebar.</p>
+                """,
+                unsafe_allow_html=True
+            )
+
+    with col_text:
+        st.markdown(
+            f"""
+            <h2 class="about-name">Zartashia Saleem</h2>
+            <div class="about-role">AI & Data Science | BSc Computer Science (Hons), TU Dublin</div>
+            <p class="about-copy">
+                I build practical AI systems that solve real-world problems, from LLM-powered support assistants
+                to data-driven automation workflows. My focus is on designing software that is both technically strong
+                and genuinely useful for students, teams, and business operations.
+            </p>
+            <div style="margin-top: 10px;">
+                <span class="about-metric">GPA 3.7 / 4.0</span>
+                <span class="about-metric">Python • ML • React • Node.js</span>
+                <span class="about-metric">AI Adoption Strategist Intern</span>
+                <span class="about-metric">NVIDIA Deep Learning Certified</span>
+            </div>
+            <p class="about-copy" style="margin-top: 12px;">
+                Recently, I led and contributed to projects in chatbot development, inventory optimization, and
+                campus-scale platforms, while supporting student communities through technology and communication.
+            </p>
+            """,
+            unsafe_allow_html=True
+        )
+
 # ================= SESSION STATE =================
 if "notes" not in st.session_state:
     st.session_state.notes = ""
@@ -204,16 +425,37 @@ if "quiz_chat_messages" not in st.session_state:
 if "quiz_chat_open" not in st.session_state:
     st.session_state.quiz_chat_open = False
 
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "Upload Notes"
+
+if "last_sidebar_menu" not in st.session_state:
+    st.session_state.last_sidebar_menu = "Upload Notes"
+
+if "last_content_page" not in st.session_state:
+    st.session_state.last_content_page = "Upload Notes"
+
 # ================= FILE READERS =================
 def read_txt(file): return clean_text(file.read().decode("utf-8"))
 def read_pdf(file): return clean_text(" ".join(page.extract_text() or "" for page in PdfReader(file).pages))
 def read_docx(file): return clean_text("\n".join(p.text for p in docx.Document(file).paragraphs))
 
 # ================= HEADER =================
+header_col1, header_col2 = st.columns([8, 1.2])
+with header_col2:
+    if st.button("About", key="about_header_btn", use_container_width=True, type="primary"):
+        if st.session_state.current_page == "About":
+            st.session_state.current_page = st.session_state.last_content_page
+        else:
+            st.session_state.current_page = "About"
+        st.rerun()
 st.title("🧠 Study Buddy")
 st.caption("AI-powered smart study assistant")
 
 # ================= SIDEBAR =================
+user = get_current_user()
+st.sidebar.markdown(f"**👤 {user['name']}**")
+st.sidebar.caption(user['email'])
+
 menu = st.sidebar.radio(
     "Navigation",
     [
@@ -228,16 +470,35 @@ menu = st.sidebar.radio(
     ]
 )
 
+sidebar_changed = menu != st.session_state.last_sidebar_menu
+if sidebar_changed:
+    st.session_state.current_page = menu
+    st.session_state.last_content_page = menu
+st.session_state.last_sidebar_menu = menu
+
+menu = st.session_state.current_page
+
 # =================RESET EVERYTHING=================
-if st.sidebar.button("🔄 Reset Everything"):
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    if st.button("🔄 Reset"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+with col2:
+    if st.button("🚪 Logout"):
+        logout()
+        st.rerun()
 
 
+
+# ================= ABOUT =================
+if menu == "About":
+    render_about_section()
 
 # ================= UPLOAD =================
-if menu=="Upload Notes":
+elif menu=="Upload Notes":
     st.markdown("### 📄 Upload Notes or Paste Text")
 
     file = st.file_uploader("Upload TXT / PDF / DOCX", type=["txt","pdf","docx"])
