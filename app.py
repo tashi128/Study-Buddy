@@ -406,6 +406,31 @@ def render_about_section():
             unsafe_allow_html=True
         )
 
+
+def render_contact_section():
+    """Render contact section with email and LinkedIn links."""
+    st.markdown(
+        f"""
+        <div class="about-card">
+            <h2 class="about-name" style="font-size: clamp(28px, 3.5vw, 38px);">Contact</h2>
+            <div class="about-role">Let's connect</div>
+            <p class="about-copy" style="margin-top: 8px;">
+                Email:
+                <a href="mailto:saleemzartashia1@gmail.com" style="color:{text_color}; font-weight:700; text-decoration:none;">
+                    saleemzartashia1@gmail.com
+                </a>
+            </p>
+            <p class="about-copy" style="margin-top: 10px;">
+                LinkedIn:
+                <a href="https://www.linkedin.com/in/zartashia-s-66b723349/" target="_blank" style="color:{text_color}; font-weight:700; text-decoration:none;">
+                    https://www.linkedin.com/in/zartashia-s-66b723349/
+                </a>
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 # ================= SESSION STATE =================
 if "notes" not in st.session_state:
     st.session_state.notes = ""
@@ -440,13 +465,20 @@ def read_pdf(file): return clean_text(" ".join(page.extract_text() or "" for pag
 def read_docx(file): return clean_text("\n".join(p.text for p in docx.Document(file).paragraphs))
 
 # ================= HEADER =================
-header_col1, header_col2 = st.columns([8, 1.2])
+header_col1, header_col2, header_col3 = st.columns([7, 1.2, 1.4])
 with header_col2:
     if st.button("About", key="about_header_btn", use_container_width=True, type="primary"):
         if st.session_state.current_page == "About":
             st.session_state.current_page = st.session_state.last_content_page
         else:
             st.session_state.current_page = "About"
+        st.rerun()
+with header_col3:
+    if st.button("Contact", key="contact_header_btn", use_container_width=True, type="primary"):
+        if st.session_state.current_page == "Contact":
+            st.session_state.current_page = st.session_state.last_content_page
+        else:
+            st.session_state.current_page = "Contact"
         st.rerun()
 st.title("🧠 Study Buddy")
 st.caption("AI-powered smart study assistant")
@@ -496,6 +528,10 @@ with col2:
 # ================= ABOUT =================
 if menu == "About":
     render_about_section()
+
+# ================= CONTACT =================
+elif menu == "Contact":
+    render_contact_section()
 
 # ================= UPLOAD =================
 elif menu=="Upload Notes":
