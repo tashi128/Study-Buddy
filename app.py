@@ -571,6 +571,8 @@ elif menu=="Upload Notes":
         else:
             st.session_state.notes = text
             st.session_state.topics = processor.extract_topics_from_texts([text])
+            if not st.session_state.topics:
+                st.session_state.topics = [{"name": "General", "importance_score": 100.0}]
 
             # Optional: reset quiz state so old questions don't stay around
             st.session_state.questions = []
@@ -607,6 +609,12 @@ elif menu == "Practice":
                 st.session_state.index = 0
                 st.session_state.score = 0
                 st.session_state.answers = []
+
+            if not st.session_state.questions:
+                st.error("Could not generate questions. Check your notes input and AI configuration.")
+                if getattr(generator, "last_error", None):
+                    st.caption(f"AI error: {generator.last_error}")
+                st.stop()
 
             st.rerun()
 
@@ -768,13 +776,17 @@ elif menu == "Flashcards":
     if not st.session_state.notes:
         st.info("Upload notes first")
     else:
-        topic_names = [t["name"] for t in st.session_state.topics]
+        topic_names = [t["name"] for t in st.session_state.topics] or ["General"]
         selected_topic = st.selectbox("Select Topic", topic_names)
 
         if st.button("Generate Flashcards"):
             with st.spinner("Creating beautiful flashcards..."):
                 cards = generator.generate_flashcards(selected_topic, st.session_state.notes)
                 st.session_state.flashcards = cards
+            if not st.session_state.flashcards:
+                st.error("Could not generate flashcards. Check your notes input and AI configuration.")
+                if getattr(generator, "last_error", None):
+                    st.caption(f"AI error: {generator.last_error}")
 
         if "flashcards" in st.session_state and st.session_state.flashcards:
             for card in st.session_state.flashcards:
@@ -840,8 +852,11 @@ Notes:
 
 # ================= STUDY PLAN =================
 elif menu == "Study Plan":
-    if not st.session_state.topics: st.info("Upload notes first")
+    if not st.session_state.notes:
+        st.info("Upload notes first")
     else:
+        if not st.session_state.topics:
+            st.session_state.topics = [{"name": "General", "importance_score": 100.0}]
         st.markdown("## 🗓 Smart Study Planner")
         plan_type = st.radio("Choose Plan Type", ["Total Hours", "Days + Hours Per Day"])
 
@@ -855,6 +870,10 @@ elif menu == "Study Plan":
                         total_hours=total_hours
                     )
                     st.session_state.study_plan = plan
+                if not st.session_state.study_plan:
+                    st.error("Could not generate study plan. Check your notes input and AI configuration.")
+                    if getattr(generator, "last_error", None):
+                        st.caption(f"AI error: {generator.last_error}")
         else:
             total_days = st.slider("Number of Days", 1, 14, 3)
             hours_per_day = st.slider("Hours Per Day", 1, 12, 4)
@@ -867,6 +886,10 @@ elif menu == "Study Plan":
                         hours_per_day=hours_per_day
                     )
                     st.session_state.study_plan = plan
+                if not st.session_state.study_plan:
+                    st.error("Could not generate study plan. Check your notes input and AI configuration.")
+                    if getattr(generator, "last_error", None):
+                        st.caption(f"AI error: {generator.last_error}")
 
         if "study_plan" in st.session_state and st.session_state.study_plan:
             for day in st.session_state.study_plan:

@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import re
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -21,10 +22,15 @@ class QuestionGenerator:
     - New: mixed quiz (mcq/fill/short) + short-answer grading
     """
 
+    def __init__(self):
+        self.last_error = None
+
     # ================= CALL AI =================
     def call_ai(self, prompt: str, temperature: float = 0.3, timeout: int = 60, retries: int = 2):
+        self.last_error = None
         if not DEEPSEEK_API_KEY:
-            print("❌ DeepSeek API key missing (DEEPSEEK_API_KEY)")
+            self.last_error = "DeepSeek API key missing (DEEPSEEK_API_KEY)."
+            print(f"❌ {self.last_error}")
             return None
 
         url = "https://api.deepseek.com/v1/chat/completions"
@@ -48,6 +54,7 @@ class QuestionGenerator:
                 try:
                     import requests
                 except Exception as e:
+                    self.last_error = "Missing dependency: requests."
                     print("⚠ The 'requests' package is required for AI calls. Install it to enable AI features.")
                     return None
 
@@ -64,6 +71,7 @@ class QuestionGenerator:
 
             except Exception as e:
                 last_err = e
+                self.last_error = str(e)
                 print(f"❌ AI CALL ERROR (attempt {attempt+1}/{retries+1}): {e}")
                 # tiny backoff for transient errors
                 time.sleep(0.8 * (attempt + 1))
@@ -162,6 +170,70 @@ class QuestionGenerator:
 
         return q
 
+    def _split_note_sentences(self, notes_text: str):
+        text = (notes_text or "").strip()
+        if not text:
+            return []
+        parts = re.split(r'(?<=[.!?])\s+|\n+', text)
+        cleaned = [p.strip() for p in parts if len(p.strip()) > 30]
+        return cleaned
+
+    def _fallback_questions(self, topics, notes_text: str, total: int = 8):
+        sentences = self._split_note_sentences(notes_text)
+        if not sentences:
+            return []
+
+        topic_names = [t.get("name", "General") for t in (topics or [])] or ["General"]
+        out = []
+        for i in range(min(total, len(sentences))):
+            s = sentences[i]
+            topic = topic_names[i % len(topic_names)]
+            distractor_1 = "This is not supported by the notes."
+            distractor_2 = "The notes provide no relevant details."
+            distractor_3 = "The exact opposite of the notes is true."
+            out.append({
+                "type": "mcq",
+                "topic": topic,
+                "question": f"Which statement best matches your notes about {topic}?",
+                "options": [s, distractor_1, distractor_2, distractor_3],
+                "correct": s
+            })
+        return out
+
+    def _fallback_flashcards(self, topic_name: str, notes_text: str, total: int = 6):
+        sentences = self._split_note_sentences(notes_text)
+        cards = []
+        for i, s in enumerate(sentences[:total], start=1):
+            cards.append({
+                "front": f"{topic_name} - Key Point {i}",
+                "back": s
+            })
+        return cards
+
+    def _fallback_study_plan(self, topics, total_days=None, hours_per_day=None, total_hours=None):
+        if total_hours:
+            days = max(1, min(7, total_hours // 2 or 1))
+            hpd = max(1, total_hours // days)
+        else:
+            days = max(1, int(total_days or 3))
+            hpd = max(1, int(hours_per_day or 2))
+
+        topic_names = [t.get("name", "General") for t in (topics or [])] or ["General"]
+        schedule_out = []
+        for d in range(days):
+            day_schedule = []
+            for h in range(hpd):
+                topic = topic_names[(d + h) % len(topic_names)]
+                start_hour = 9 + h
+                end_hour = start_hour + 1
+                day_schedule.append({
+                    "time": f"{start_hour:02d}:00 - {end_hour:02d}:00",
+                    "task": f"Study and active recall for {topic}, then solve 10 practice questions.",
+                    "topic": topic
+                })
+            schedule_out.append({"day": f"Day {d+1}", "schedule": day_schedule})
+        return schedule_out
+
     # ================= GENERATE QUESTIONS (MCQ ONLY, PER TOPIC) =================
     def generate_smart_questions(self, topics, notes_text: str):
         """
@@ -228,6 +300,10 @@ Rules:
                     # ensure type is mcq for this method
                     nq["type"] = "mcq"
                     all_questions.append(nq)
+
+        if not all_questions:
+            print("⚠ Falling back to local question generation.")
+            return self._fallback_questions(topics, notes_text, total=8)
 
         return all_questions
 
@@ -398,13 +474,16 @@ Format:
 
         if not parsed or not isinstance(parsed, list):
             print("⚠ Flashcard generation failed")
-            return []
+            return self._fallback_flashcards(topic_name, notes_text, total=6)
 
         # normalize
         out = []
         for c in parsed:
             if isinstance(c, dict) and str(c.get("front", "")).strip() and str(c.get("back", "")).strip():
                 out.append({"front": str(c["front"]).strip(), "back": str(c["back"]).strip()})
+
+        if not out:
+            return self._fallback_flashcards(topic_name, notes_text, total=6)
 
         return out
 
@@ -473,7 +552,7 @@ Do NOT add explanation.
 
         if not parsed or not isinstance(parsed, list):
             print("⚠ Study plan generation failed")
-            return []
+            return self._fallback_study_plan(topics, total_days=total_days, hours_per_day=hours_per_day, total_hours=total_hours)
 
         # normalize schedule items
         out = []
@@ -494,6 +573,9 @@ Do NOT add explanation.
                     "topic": str(item.get("topic", "")).strip() or "General"
                 })
             out.append({"day": day_name, "schedule": cleaned_schedule})
+
+        if not out:
+            return self._fallback_study_plan(topics, total_days=total_days, hours_per_day=hours_per_day, total_hours=total_hours)
 
         return out
 
