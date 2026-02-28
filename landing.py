@@ -538,10 +538,6 @@ def show_landing_page():
                             st.success("✅ Account created! Please sign in.")
                             st.session_state.show_signup = False
                             st.session_state.show_login = True
-                            st.session_state.signup_name = ""
-                            st.session_state.signup_email = ""
-                            st.session_state.signup_password = ""
-                            st.session_state.signup_confirm = ""
                             st.rerun()
                         else:
                             st.error("❌ " + result["error"])
