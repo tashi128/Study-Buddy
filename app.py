@@ -337,9 +337,14 @@ def extract_json_array(text: str):
 
 
 def _resolve_about_photo():
-    """Resolve profile photo from configured fixed path only."""
+    """Resolve profile photo from env var or repository-local file."""
+    project_dir = Path(__file__).resolve().parent
     candidates = [
         os.getenv("ABOUT_PHOTO_PATH", "").strip(),
+        str(project_dir / "about_photo.JPG"),
+        str(project_dir / "about_photo.jpg"),
+        str(project_dir / "about_photo.jpeg"),
+        str(project_dir / "about_photo.png"),
         "/Users/tashi/Desktop/ai-study-assistant/about_photo.JPG",
         "/Users/tashi/Desktop/Internship Stuff/about-photo.jpg",
         "/Users/tashi/Desktop/Internship Stuff/about-photo.jpeg",
@@ -377,7 +382,7 @@ def render_about_section():
                     color:{text_color};
                     background: linear-gradient(145deg, rgba(247,203,212,0.52), rgba(245,228,214,0.52));
                 ">ZS</div>
-                <p class="about-note">Upload your profile photo from the sidebar.</p>
+                <p class="about-note">Set ABOUT_PHOTO_PATH or include about_photo.JPG in the project root.</p>
                 """,
                 unsafe_allow_html=True
             )
