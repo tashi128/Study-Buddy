@@ -466,11 +466,15 @@ def show_landing_page():
             # Login Form
             elif st.session_state.show_login:
                 st.markdown("<h2 style='color: #41242c; font-family: Manrope, sans-serif; font-size: 30px; margin-bottom: 20px; text-align: center; font-weight: 700;'>Sign In</h2>", unsafe_allow_html=True)
-                
-                login_email = st.text_input("Email", placeholder="you@example.com", key="login_email")
-                login_password = st.text_input("Password", type="password", placeholder="••••••••", key="login_password")
-                
-                if st.button("Sign In", use_container_width=True, key="login_submit"):
+
+                with st.form("login_form", clear_on_submit=False):
+                    st.text_input("Email", placeholder="you@example.com", key="login_email")
+                    st.text_input("Password", type="password", placeholder="••••••••", key="login_password")
+                    login_submitted = st.form_submit_button("Sign In", use_container_width=True)
+
+                if login_submitted:
+                    login_email = st.session_state.get("login_email", "").strip()
+                    login_password = st.session_state.get("login_password", "")
                     if not login_email or not login_password:
                         st.error("❌ Please fill in all fields")
                     else:
@@ -502,22 +506,28 @@ def show_landing_page():
             # Sign Up Form
             elif st.session_state.show_signup:
                 st.markdown("<h2 style='color: #41242c; font-family: Manrope, sans-serif; font-size: 30px; margin-bottom: 20px; text-align: center; font-weight: 700;'>Create Account</h2>", unsafe_allow_html=True)
-                
-                signup_name = st.text_input("Full Name", placeholder="John Doe", key="signup_name")
-                signup_email = st.text_input("Email", placeholder="you@example.com", key="signup_email")
-                signup_password = st.text_input("Password", type="password", placeholder="••••••••", key="signup_password")
-                
-                st.markdown("""
-                <div style='background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(125, 69, 80, 0.22); border-radius: 12px; padding: 12px 15px; margin: 8px 0; font-size: 12px; color: rgba(66, 35, 42, 0.92); font-family: Manrope, sans-serif;'>
-                <strong>Password Requirements:</strong><br>
-                ✓ Min 8 characters &nbsp; ✓ 1 uppercase (A-Z) &nbsp; ✓ 1 lowercase (a-z)<br>
-                ✓ 1 number (0-9) &nbsp; ✓ 1 special char (!@#$%^&*)
-                </div>
-                """, unsafe_allow_html=True)
-                
-                signup_confirm = st.text_input("Confirm Password", type="password", placeholder="••••••••", key="signup_confirm")
-                
-                if st.button("Create Account", use_container_width=True, key="signup_submit"):
+
+                with st.form("signup_form", clear_on_submit=False):
+                    st.text_input("Full Name", placeholder="John Doe", key="signup_name")
+                    st.text_input("Email", placeholder="you@example.com", key="signup_email")
+                    st.text_input("Password", type="password", placeholder="••••••••", key="signup_password")
+
+                    st.markdown("""
+                    <div style='background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(125, 69, 80, 0.22); border-radius: 12px; padding: 12px 15px; margin: 8px 0; font-size: 12px; color: rgba(66, 35, 42, 0.92); font-family: Manrope, sans-serif;'>
+                    <strong>Password Requirements:</strong><br>
+                    ✓ Min 8 characters &nbsp; ✓ 1 uppercase (A-Z) &nbsp; ✓ 1 lowercase (a-z)<br>
+                    ✓ 1 number (0-9) &nbsp; ✓ 1 special char (!@#$%^&*)
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    st.text_input("Confirm Password", type="password", placeholder="••••••••", key="signup_confirm")
+                    signup_submitted = st.form_submit_button("Create Account", use_container_width=True)
+
+                if signup_submitted:
+                    signup_name = st.session_state.get("signup_name", "").strip()
+                    signup_email = st.session_state.get("signup_email", "").strip()
+                    signup_password = st.session_state.get("signup_password", "")
+                    signup_confirm = st.session_state.get("signup_confirm", "")
                     if not signup_name or not signup_email or not signup_password or not signup_confirm:
                         st.error("❌ Please fill in all fields")
                     elif signup_password != signup_confirm:
@@ -528,6 +538,10 @@ def show_landing_page():
                             st.success("✅ Account created! Please sign in.")
                             st.session_state.show_signup = False
                             st.session_state.show_login = True
+                            st.session_state.signup_name = ""
+                            st.session_state.signup_email = ""
+                            st.session_state.signup_password = ""
+                            st.session_state.signup_confirm = ""
                             st.rerun()
                         else:
                             st.error("❌ " + result["error"])
