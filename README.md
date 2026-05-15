@@ -2,6 +2,9 @@
 
 **AI Study Buddy** is an intelligent, interactive study assistant built with **Python** and **Streamlit**. It helps students learn efficiently by generating practice questions, flashcards, summaries, and personalized study plans from uploaded notes. It also features an AI-powered doubt chat that answers questions based on your notes and study topics.
 
+Live at:
+https://studybuddy.zartashia.com/
+
 ---
 
 ## 🌟 Features
