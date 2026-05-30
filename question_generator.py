@@ -178,7 +178,99 @@ class QuestionGenerator:
         cleaned = [p.strip() for p in parts if len(p.strip()) > 30]
         return cleaned
 
-    def _fallback_questions(self, topics, notes_text: str, total: int = 8):
+    def _prepare_note_documents(self, notes_text: str = "", note_documents=None):
+        documents = []
+        for index, doc in enumerate(note_documents or [], start=1):
+            text = str(doc.get("text", "")).strip()
+            if not text:
+                continue
+            doc_id = str(doc.get("id") or f"note_{index}")
+            display_label = str(doc.get("display_label") or f"Note {index}")
+            title = str(doc.get("title") or display_label).strip() or display_label
+            documents.append(
+                {
+                    "id": doc_id,
+                    "display_label": display_label,
+                    "title": title,
+                    "text": text,
+                }
+            )
+
+        if documents:
+            return documents
+
+        fallback_text = str(notes_text or "").strip()
+        if not fallback_text:
+            return []
+
+        return [
+            {
+                "id": "note_1",
+                "display_label": "Note 1",
+                "title": "Combined Notes",
+                "text": fallback_text,
+            }
+        ]
+
+    def _build_notes_context(self, note_documents=None, notes_text: str = "", max_chars: int = 6000):
+        documents = self._prepare_note_documents(notes_text=notes_text, note_documents=note_documents)
+        if not documents:
+            return ""
+
+        chunks = []
+        consumed = 0
+        for doc in documents:
+            excerpt_limit = max(300, min(1800, max_chars // max(1, len(documents))))
+            excerpt = doc["text"][:excerpt_limit]
+            chunk = (
+                f"{doc['display_label']} | ID: {doc['id']} | Title: {doc['title']}\n"
+                f"{excerpt}"
+            )
+            if consumed + len(chunk) > max_chars and chunks:
+                break
+            chunks.append(chunk)
+            consumed += len(chunk)
+
+        return "\n\n".join(chunks)
+
+    def _match_note_ids_for_text(self, text: str, note_documents=None, fallback_limit: int = 2):
+        documents = self._prepare_note_documents(note_documents=note_documents)
+        query_words = {
+            word.lower() for word in re.findall(r"[A-Za-z]{4,}", text or "")
+        }
+
+        if not query_words or not documents:
+            return [doc["id"] for doc in documents[:fallback_limit]]
+
+        scored = []
+        for doc in documents:
+            doc_words = {
+                word.lower() for word in re.findall(r"[A-Za-z]{4,}", doc["text"][:4000])
+            }
+            overlap = len(query_words & doc_words)
+            if overlap:
+                scored.append((overlap, doc["id"]))
+
+        scored.sort(reverse=True)
+        matched = [doc_id for _, doc_id in scored[:fallback_limit]]
+        return matched or [doc["id"] for doc in documents[:fallback_limit]]
+
+    def _normalize_note_refs(self, note_ids, note_documents=None, fallback_text: str = ""):
+        documents = self._prepare_note_documents(note_documents=note_documents)
+        valid_ids = {doc["id"] for doc in documents}
+
+        cleaned = []
+        for note_id in note_ids or []:
+            note_id = str(note_id).strip()
+            if note_id and note_id in valid_ids and note_id not in cleaned:
+                cleaned.append(note_id)
+
+        if cleaned:
+            return cleaned
+
+        return self._match_note_ids_for_text(fallback_text, documents)
+
+    def _fallback_questions(self, topics, notes_text: str, total: int = 8, note_documents=None):
         sentences = self._split_note_sentences(notes_text)
         if not sentences:
             return []
@@ -196,21 +288,23 @@ class QuestionGenerator:
                 "topic": topic,
                 "question": f"Which statement best matches your notes about {topic}?",
                 "options": [s, distractor_1, distractor_2, distractor_3],
-                "correct": s
+                "correct": s,
+                "source_note_ids": self._match_note_ids_for_text(s, note_documents),
             })
         return out
 
-    def _fallback_flashcards(self, topic_name: str, notes_text: str, total: int = 6):
+    def _fallback_flashcards(self, topic_name: str, notes_text: str, total: int = 6, note_documents=None):
         sentences = self._split_note_sentences(notes_text)
         cards = []
         for i, s in enumerate(sentences[:total], start=1):
             cards.append({
                 "front": f"{topic_name} - Key Point {i}",
-                "back": s
+                "back": s,
+                "source_note_ids": self._match_note_ids_for_text(s, note_documents),
             })
         return cards
 
-    def _fallback_study_plan(self, topics, total_days=None, hours_per_day=None, total_hours=None):
+    def _fallback_study_plan(self, topics, total_days=None, hours_per_day=None, total_hours=None, note_documents=None):
         if total_hours:
             days = max(1, min(7, total_hours // 2 or 1))
             hpd = max(1, total_hours // days)
@@ -229,13 +323,14 @@ class QuestionGenerator:
                 day_schedule.append({
                     "time": f"{start_hour:02d}:00 - {end_hour:02d}:00",
                     "task": f"Study and active recall for {topic}, then solve 10 practice questions.",
-                    "topic": topic
+                    "topic": topic,
+                    "source_note_ids": self._match_note_ids_for_text(topic, note_documents),
                 })
             schedule_out.append({"day": f"Day {d+1}", "schedule": day_schedule})
         return schedule_out
 
     # ================= GENERATE QUESTIONS (MCQ ONLY, PER TOPIC) =================
-    def generate_smart_questions(self, topics, notes_text: str):
+    def generate_smart_questions(self, topics, notes_text: str, note_documents=None):
         """
         Your original behavior:
         - Generates MCQs per topic based on importance.
@@ -246,6 +341,8 @@ class QuestionGenerator:
         if not notes_text:
             print("⚠ No notes provided")
             return []
+
+        notes_context = self._build_notes_context(note_documents=note_documents, notes_text=notes_text, max_chars=6000)
 
         for topic in topics:
             importance = topic.get("importance_score", 50)
@@ -265,7 +362,7 @@ Topic: {topic['name']}
 Use ONLY the notes below to create the questions.
 
 NOTES:
-{notes_text[:4000]}
+{notes_context}
 
 Rules:
 - Return ONLY valid JSON
@@ -275,9 +372,11 @@ Rules:
 - Each question must have:
   {{
     "type": "mcq",
+    "topic": "{topic['name']}",
     "question": "...",
     "options": ["A","B","C","D"],
-    "correct": "exact correct option text"
+    "correct": "exact correct option text",
+    "source_note_ids": ["exact note id(s) from the notes context above"]
   }}
 """
 
@@ -299,16 +398,21 @@ Rules:
                     nq["topic"] = topic["name"]
                     # ensure type is mcq for this method
                     nq["type"] = "mcq"
+                    nq["source_note_ids"] = self._normalize_note_refs(
+                        q.get("source_note_ids"),
+                        note_documents=note_documents,
+                        fallback_text=f"{nq.get('question', '')} {nq.get('correct', '')}",
+                    )
                     all_questions.append(nq)
 
         if not all_questions:
             print("⚠ Falling back to local question generation.")
-            return self._fallback_questions(topics, notes_text, total=8)
+            return self._fallback_questions(topics, notes_text, total=8, note_documents=note_documents)
 
         return all_questions
 
     # ================= GENERATE MIXED QUIZ (MCQ + FILL + SHORT) =================
-    def generate_mixed_quiz(self, topics, notes_text: str, total_questions: int = 12):
+    def generate_mixed_quiz(self, topics, notes_text: str, total_questions: int = 12, note_documents=None):
         """
         New:
         Generates a mixed quiz across all notes/topics:
@@ -327,6 +431,7 @@ Rules:
             return []
 
         topic_names = [t.get("name", "General") for t in topics] if topics else ["General"]
+        notes_context = self._build_notes_context(note_documents=note_documents, notes_text=notes_text, max_chars=6000)
 
         # Keep proportions reasonable
         mcq_n = max(1, int(total_questions * 0.5))
@@ -337,7 +442,7 @@ Rules:
 Generate a mixed practice quiz based ONLY on the notes.
 
 NOTES:
-{notes_text[:4000]}
+{notes_context}
 
 TOPICS (use these as "topic" labels when possible):
 {topic_names}
@@ -356,19 +461,22 @@ Format:
     "topic": "Topic name",
     "question": "...",
     "options": ["A","B","C","D"],
-    "correct": "exact option text"
+    "correct": "exact option text",
+    "source_note_ids": ["exact note id(s) from the notes context above"]
   }},
   {{
     "type": "fill",
     "topic": "Topic name",
     "question": "The _____ is responsible for ...",
-    "correct": "missing word/phrase"
+    "correct": "missing word/phrase",
+    "source_note_ids": ["exact note id(s) from the notes context above"]
   }},
   {{
     "type": "short",
     "topic": "Topic name",
     "question": "Explain ... in 2-3 lines",
-    "correct": "model short answer"
+    "correct": "model short answer",
+    "source_note_ids": ["exact note id(s) from the notes context above"]
   }}
 ]
 """
@@ -388,12 +496,17 @@ Format:
                 # Ensure type is one of allowed
                 if nq["type"] not in ["mcq", "fill", "short", "definition"]:
                     nq["type"] = "short"
+                nq["source_note_ids"] = self._normalize_note_refs(
+                    q.get("source_note_ids"),
+                    note_documents=note_documents,
+                    fallback_text=f"{nq.get('question', '')} {nq.get('correct', '')}",
+                )
                 out.append(nq)
 
         # If the model returned too few valid items, fallback
         if len(out) < max(3, total_questions // 2):
             print("⚠ Mixed quiz returned too few valid questions; falling back.")
-            return self.generate_smart_questions(topics, notes_text)
+            return self.generate_smart_questions(topics, notes_text, note_documents=note_documents)
 
         return out
 
@@ -447,7 +560,8 @@ Return STRICT JSON object only (no markdown):
         }
 
     # ================= GENERATE FLASHCARDS =================
-    def generate_flashcards(self, topic_name: str, notes_text: str):
+    def generate_flashcards(self, topic_name: str, notes_text: str, note_documents=None):
+        notes_context = self._build_notes_context(note_documents=note_documents, notes_text=notes_text, max_chars=5000)
         prompt = f"""
 Create 6 flashcards for studying.
 
@@ -456,7 +570,7 @@ Topic: {topic_name}
 Use ONLY the notes below.
 
 NOTES:
-{notes_text[:4000]}
+{notes_context}
 
 Return ONLY valid JSON array.
 Do NOT wrap in markdown.
@@ -465,7 +579,8 @@ Format:
 [
   {{
     "front": "Question or keyword",
-    "back": "Clear explanation"
+    "back": "Clear explanation",
+    "source_note_ids": ["exact note id(s) from the notes context above"]
   }}
 ]
 """
@@ -474,25 +589,35 @@ Format:
 
         if not parsed or not isinstance(parsed, list):
             print("⚠ Flashcard generation failed")
-            return self._fallback_flashcards(topic_name, notes_text, total=6)
+            return self._fallback_flashcards(topic_name, notes_text, total=6, note_documents=note_documents)
 
         # normalize
         out = []
         for c in parsed:
             if isinstance(c, dict) and str(c.get("front", "")).strip() and str(c.get("back", "")).strip():
-                out.append({"front": str(c["front"]).strip(), "back": str(c["back"]).strip()})
+                out.append({
+                    "front": str(c["front"]).strip(),
+                    "back": str(c["back"]).strip(),
+                    "source_note_ids": self._normalize_note_refs(
+                        c.get("source_note_ids"),
+                        note_documents=note_documents,
+                        fallback_text=f"{c.get('front', '')} {c.get('back', '')}",
+                    ),
+                })
 
         if not out:
-            return self._fallback_flashcards(topic_name, notes_text, total=6)
+            return self._fallback_flashcards(topic_name, notes_text, total=6, note_documents=note_documents)
 
         return out
 
 
     # ================= GENERATE DETAILED STUDY PLAN =================
-    def generate_detailed_study_plan(self, topics, notes, total_days=None, hours_per_day=None, total_hours=None):
+    def generate_detailed_study_plan(self, topics, notes, total_days=None, hours_per_day=None, total_hours=None, note_documents=None):
         topic_summary = ""
         for t in topics:
             topic_summary += f"- {t['name']} ({t['importance_score']}% importance)\n"
+
+        notes_context = self._build_notes_context(note_documents=note_documents, notes_text=notes, max_chars=6000)
 
         if total_hours:
             time_instruction = f"""
@@ -510,7 +635,7 @@ Create a daily + hourly breakdown.
 You are an expert academic planner.
 
 Student Notes Summary:
-{notes[:4000]}
+{notes_context}
 
 Topics with importance:
 {topic_summary}
@@ -537,7 +662,8 @@ Return STRICT JSON array format:
       {{
         "time": "09:00 - 10:00",
         "task": "Study concept of ...",
-        "topic": "Topic name"
+        "topic": "Topic name",
+        "source_note_ids": ["exact note id(s) from the notes context above"]
       }}
     ]
   }}
@@ -552,7 +678,13 @@ Do NOT add explanation.
 
         if not parsed or not isinstance(parsed, list):
             print("⚠ Study plan generation failed")
-            return self._fallback_study_plan(topics, total_days=total_days, hours_per_day=hours_per_day, total_hours=total_hours)
+            return self._fallback_study_plan(
+                topics,
+                total_days=total_days,
+                hours_per_day=hours_per_day,
+                total_hours=total_hours,
+                note_documents=note_documents,
+            )
 
         # normalize schedule items
         out = []
@@ -570,12 +702,23 @@ Do NOT add explanation.
                 cleaned_schedule.append({
                     "time": str(item.get("time", "")).strip(),
                     "task": str(item.get("task", "")).strip(),
-                    "topic": str(item.get("topic", "")).strip() or "General"
+                    "topic": str(item.get("topic", "")).strip() or "General",
+                    "source_note_ids": self._normalize_note_refs(
+                        item.get("source_note_ids"),
+                        note_documents=note_documents,
+                        fallback_text=f"{item.get('topic', '')} {item.get('task', '')}",
+                    ),
                 })
             out.append({"day": day_name, "schedule": cleaned_schedule})
 
         if not out:
-            return self._fallback_study_plan(topics, total_days=total_days, hours_per_day=hours_per_day, total_hours=total_hours)
+            return self._fallback_study_plan(
+                topics,
+                total_days=total_days,
+                hours_per_day=hours_per_day,
+                total_hours=total_hours,
+                note_documents=note_documents,
+            )
 
         return out
 

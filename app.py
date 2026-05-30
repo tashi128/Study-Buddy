@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 from pathlib import Path
 import streamlit as st
 try:
@@ -336,6 +337,88 @@ def extract_json_array(text: str):
         return None
 
 
+def build_note_document(title: str, text: str, source_type: str):
+    cleaned_text = clean_text(text or "")
+    cleaned_title = (title or "Untitled Note").strip() or "Untitled Note"
+    content_hash = hashlib.md5(f"{cleaned_title}\n{cleaned_text}".encode("utf-8")).hexdigest()[:12]
+    return {
+        "id": f"note_{content_hash}",
+        "title": cleaned_title,
+        "text": cleaned_text,
+        "source_type": source_type,
+    }
+
+
+def sync_note_labels():
+    for index, doc in enumerate(st.session_state.note_documents, start=1):
+        doc["display_label"] = f"Note {index}"
+
+
+def refresh_notes_state(reset_outputs: bool = True):
+    sync_note_labels()
+    note_documents = st.session_state.note_documents
+    st.session_state.notes = "\n\n".join(doc["text"] for doc in note_documents)
+    st.session_state.topics = processor.extract_topics_from_documents(note_documents) if note_documents else []
+
+    if not st.session_state.topics and note_documents:
+        st.session_state.topics = [
+            {
+                "name": "General",
+                "importance_score": 100.0,
+                "note_ids": [doc["id"] for doc in note_documents],
+                "note_titles": [doc["title"] for doc in note_documents],
+            }
+        ]
+
+    if reset_outputs:
+        st.session_state.questions = []
+        st.session_state.answers = []
+        st.session_state.index = 0
+        st.session_state.score = 0
+        st.session_state.flashcards = []
+        st.session_state.study_plan = []
+        st.session_state.quiz_chat_messages = [
+            {"role": "assistant", "content": "Hi 👋 I'm your Quiz Helper 🌸. Ask me anything about this quiz — hints, explanations, or concepts!"}
+        ]
+        st.session_state.quiz_chat_open = False
+
+
+def get_note_map():
+    return {doc["id"]: doc for doc in st.session_state.get("note_documents", [])}
+
+
+def format_note_references(note_ids):
+    note_map = get_note_map()
+    labels = []
+    for note_id in note_ids or []:
+        doc = note_map.get(note_id)
+        if doc:
+            labels.append(f"{doc['display_label']} - {doc['title']}")
+    return ", ".join(labels) if labels else "All uploaded notes"
+
+
+def build_notes_context(max_chars: int = 5000):
+    documents = st.session_state.get("note_documents", [])
+    if not documents:
+        return ""
+
+    chunks = []
+    consumed = 0
+    per_note_limit = max(350, min(1600, max_chars // max(1, len(documents))))
+
+    for doc in documents:
+        chunk = (
+            f"{doc['display_label']} | ID: {doc['id']} | Title: {doc['title']}\n"
+            f"{doc['text'][:per_note_limit]}"
+        )
+        if consumed + len(chunk) > max_chars and chunks:
+            break
+        chunks.append(chunk)
+        consumed += len(chunk)
+
+    return "\n\n".join(chunks)
+
+
 def _resolve_about_photo():
     """Resolve profile photo from env var or repository-local file."""
     project_dir = Path(__file__).resolve().parent
@@ -437,6 +520,9 @@ def render_contact_section():
     )
 
 # ================= SESSION STATE =================
+if "note_documents" not in st.session_state:
+    st.session_state.note_documents = []
+
 if "notes" not in st.session_state:
     st.session_state.notes = ""
     st.session_state.topics = []
@@ -445,6 +531,8 @@ if "notes" not in st.session_state:
     st.session_state.index = 0
     st.session_state.score = 0
     st.session_state.weak_topics = []
+    st.session_state.flashcards = []
+    st.session_state.study_plan = []
 
 # --- Practice Quiz Helper state (added; only used in Practice) ---
 if "quiz_chat_messages" not in st.session_state:
@@ -463,6 +551,9 @@ if "last_sidebar_menu" not in st.session_state:
 
 if "last_content_page" not in st.session_state:
     st.session_state.last_content_page = "Upload Notes"
+
+if st.session_state.note_documents:
+    sync_note_labels()
 
 # ================= FILE READERS =================
 def read_txt(file): return clean_text(file.read().decode("utf-8"))
@@ -540,47 +631,79 @@ elif menu == "Contact":
 
 # ================= UPLOAD =================
 elif menu=="Upload Notes":
-    st.markdown("### 📄 Upload Notes or Paste Text")
+    st.markdown("### 📄 Build Your Notes Library")
 
-    file = st.file_uploader("Upload TXT / PDF / DOCX", type=["txt","pdf","docx"])
-
-    pasted = st.text_area(
-        "Or paste your notes here",
-        height=220,
-        placeholder="Paste your notes text here..."
+    uploaded_files = st.file_uploader(
+        "Upload one or more TXT / PDF / DOCX files",
+        type=["txt", "pdf", "docx"],
+        accept_multiple_files=True
     )
 
-    text = ""
+    pasted_title = st.text_input("Pasted note title", placeholder="e.g. Lecture 5 recap")
+    pasted = st.text_area(
+        "Or paste a note here",
+        height=220,
+        placeholder="Paste one full note here, then add it to your library..."
+    )
 
-    # 1) Read from file if uploaded
-    if file:
-        if file.name.endswith(".txt"):
-            text = read_txt(file)
-        elif file.name.endswith(".pdf"):
-            text = read_pdf(file)
+    existing_ids = {doc["id"] for doc in st.session_state.note_documents}
+
+    add_uploads = st.button("Add Uploaded Notes")
+    if add_uploads:
+        if not uploaded_files:
+            st.warning("Please upload at least one file first.")
         else:
-            text = read_docx(file)
+            added_count = 0
+            for file in uploaded_files:
+                if file.name.endswith(".txt"):
+                    text = read_txt(file)
+                elif file.name.endswith(".pdf"):
+                    text = read_pdf(file)
+                else:
+                    text = read_docx(file)
 
-    # 2) If pasted text exists, prefer it
-    if pasted.strip():
-        text = clean_text(pasted)
+                note_doc = build_note_document(file.name, text, "file")
+                if note_doc["text"] and note_doc["id"] not in existing_ids:
+                    st.session_state.note_documents.append(note_doc)
+                    existing_ids.add(note_doc["id"])
+                    added_count += 1
 
-    if st.button("Analyze Notes"):
-        if not text.strip():
-            st.warning("Please upload a file or paste some text first.")
+            if added_count:
+                refresh_notes_state(reset_outputs=True)
+                st.success(f"✅ Added {added_count} note(s) to your library.")
+            else:
+                st.info("Those uploaded notes are already in your library.")
+
+    add_pasted = st.button("Add Pasted Note")
+    if add_pasted:
+        if not pasted.strip():
+            st.warning("Paste some note text first.")
         else:
-            st.session_state.notes = text
-            st.session_state.topics = processor.extract_topics_from_texts([text])
-            if not st.session_state.topics:
-                st.session_state.topics = [{"name": "General", "importance_score": 100.0}]
+            note_title = pasted_title.strip() or f"Pasted Note {len(st.session_state.note_documents) + 1}"
+            note_doc = build_note_document(note_title, pasted, "pasted")
+            if note_doc["id"] in existing_ids:
+                st.info("That pasted note is already in your library.")
+            else:
+                st.session_state.note_documents.append(note_doc)
+                refresh_notes_state(reset_outputs=True)
+                st.success(f"✅ Added {note_doc['title']} to your library.")
 
-            # Optional: reset quiz state so old questions don't stay around
-            st.session_state.questions = []
-            st.session_state.answers = []
-            st.session_state.index = 0
-            st.session_state.score = 0
+    if st.session_state.note_documents:
+        st.markdown("### Your Notes")
+        st.caption(f"{len(st.session_state.note_documents)} note(s) ready for topics, practice, flashcards, summaries, and planning.")
 
-            st.success("✅ Notes analyzed successfully!")
+        for doc in st.session_state.note_documents:
+            with st.expander(f"{doc['display_label']} - {doc['title']}", expanded=False):
+                st.caption(f"Source: {doc['source_type'].capitalize()}")
+                st.write(doc["text"][:1200] + ("..." if len(doc["text"]) > 1200 else ""))
+                if st.button("Remove Note", key=f"remove_{doc['id']}"):
+                    st.session_state.note_documents = [
+                        current for current in st.session_state.note_documents if current["id"] != doc["id"]
+                    ]
+                    refresh_notes_state(reset_outputs=True)
+                    st.rerun()
+    else:
+        st.info("Add one or more notes to start generating combined study materials.")
 
 # ================= TOPICS =================
 elif menu=="Topics":
@@ -589,10 +712,11 @@ elif menu=="Topics":
         for t in st.session_state.topics:
             st.write(f"### {t['name']}")
             st.progress(t["importance_score"]/100)
+            st.caption(f"Referenced notes: {format_note_references(t.get('note_ids'))}")
 
 # ================= PRACTICE =================
 elif menu == "Practice":
-    if not st.session_state.notes:
+    if not st.session_state.note_documents:
         st.warning("Upload notes first")
     else:
         # ---- start quiz ----
@@ -603,7 +727,9 @@ elif menu == "Practice":
 
                 # Otherwise keep your existing:
                 st.session_state.questions = generator.generate_smart_questions(
-                    st.session_state.topics, st.session_state.notes
+                    st.session_state.topics,
+                    st.session_state.notes,
+                    note_documents=st.session_state.note_documents
                 )
 
                 st.session_state.index = 0
@@ -631,6 +757,7 @@ elif menu == "Practice":
                 st.markdown("## 📋 Review")
                 for a in st.session_state.answers:
                     st.write(f"**Q:** {a['question']}")
+                    st.caption(f"Referenced notes: {format_note_references(a.get('source_note_ids'))}")
                     st.write(f"Your Answer: {a['selected']}")
 
                     if str(a["selected"]).strip().lower() == str(a["correct"]).strip().lower():
@@ -647,6 +774,7 @@ elif menu == "Practice":
 
                 q = st.session_state.questions[current_q]
                 ans_type = q.get("type", "mcq")
+                st.caption(f"Referenced notes: {format_note_references(q.get('source_note_ids'))}")
 
                 # Input types
                 if ans_type == "mcq":
@@ -667,6 +795,7 @@ elif menu == "Practice":
                     st.session_state.answers.append({
                         "question": q["question"],
                         "topic": q.get("topic", "General"),
+                        "source_note_ids": q.get("source_note_ids", []),
                         "selected": ans,
                         "correct": q.get("correct", "")
                     })
@@ -710,15 +839,15 @@ elif menu == "Practice":
                     else:
                         st.markdown(f"**Helper:** {msg['content']}")
 
-            user_msg = st.text_input("Ask about the quiz...", key="quiz_chat_input")
+            with st.form("quiz_helper_form", clear_on_submit=True):
+                user_msg = st.text_input("Ask about the quiz...", key="quiz_chat_input")
+                col1, col2 = st.columns([1, 1])
 
-            col1, col2 = st.columns([1, 1])
+                with col1:
+                    send = st.form_submit_button("Send")
 
-            with col1:
-                send = st.button("Send")
-
-            with col2:
-                close = st.button("Close Chat")
+                with col2:
+                    close = st.form_submit_button("Close Chat")
 
             if close:
                 st.session_state.quiz_chat_open = False
@@ -736,7 +865,7 @@ elif menu == "Practice":
 
                 context = f"""
 Notes:
-{st.session_state.notes[:2500]}
+{build_notes_context(3000)}
 
 Topics:
 {[t['name'] for t in st.session_state.topics]}
@@ -748,12 +877,14 @@ Current Question:
 Topic: {current_q.get('topic','General')}
 Question: {current_q.get('question','')}
 Options: {current_q.get('options',[])}
+Referenced notes: {format_note_references(current_q.get('source_note_ids'))}
 """
 
                 ai_prompt = f"""
 You are a quiz tutor.
 Help the student understand the quiz question and concept.
 Do NOT directly give the answer unless explicitly asked.
+When useful, mention which note(s) the explanation comes from.
 
 {context}
 
@@ -765,15 +896,17 @@ Student question:
                     ai_reply = call_ai(ai_prompt, temperature=0.3)
 
                 st.session_state.quiz_chat_messages.append(
-                    {"role": "assistant", "content": ai_reply}
+                    {
+                        "role": "assistant",
+                        "content": ai_reply or "I couldn't generate a helper response just now. Please try again.",
+                    }
                 )
 
-                st.session_state.quiz_chat_input = ""
                 st.rerun()
 
 # ================= FLASHCARDS =================
 elif menu == "Flashcards":
-    if not st.session_state.notes:
+    if not st.session_state.note_documents:
         st.info("Upload notes first")
     else:
         topic_names = [t["name"] for t in st.session_state.topics] or ["General"]
@@ -781,7 +914,11 @@ elif menu == "Flashcards":
 
         if st.button("Generate Flashcards"):
             with st.spinner("Creating beautiful flashcards..."):
-                cards = generator.generate_flashcards(selected_topic, st.session_state.notes)
+                cards = generator.generate_flashcards(
+                    selected_topic,
+                    st.session_state.notes,
+                    note_documents=st.session_state.note_documents
+                )
                 st.session_state.flashcards = cards
             if not st.session_state.flashcards:
                 st.error("Could not generate flashcards. Check your notes input and AI configuration.")
@@ -790,6 +927,7 @@ elif menu == "Flashcards":
 
         if "flashcards" in st.session_state and st.session_state.flashcards:
             for card in st.session_state.flashcards:
+                note_reference = format_note_references(card.get("source_note_ids"))
                 st.markdown(f"""
                 <div style="
                     background-color: {card_color};
@@ -805,12 +943,15 @@ elif menu == "Flashcards":
                     <p style="font-size:16px; line-height:1.6; color: {text_color};">
                         {card['back']}
                     </p>
+                    <p style="font-size:13px; line-height:1.4; color: {accent_color}; margin-bottom:0;">
+                        References: {note_reference}
+                    </p>
                 </div>
                 """, unsafe_allow_html=True)
 
 # ================= AI DOUBT CHAT =================
 elif menu=="AI Doubt Chat":
-    if not st.session_state.notes: st.info("Upload notes first")
+    if not st.session_state.note_documents: st.info("Upload notes first")
     else:
         q = st.text_input("Ask your question")
         if st.button("Ask AI"):
@@ -820,9 +961,10 @@ You are an academic assistant.
 
 Answer using uploaded notes AND relevant topics intelligently.
 If answer is not directly in notes, provide an accurate answer based on the context.
+Start with a short "Notes used:" line that references the most relevant note labels and titles.
 
 Notes:
-{st.session_state.notes[:4000]}
+{build_notes_context(4500)}
 
 Topics:
 {[t['name'] for t in st.session_state.topics]}
@@ -836,15 +978,19 @@ Question:
 
 # ================= AI NOTES SUMMARY =================
 elif menu=="AI Notes Summary":
-    if not st.session_state.notes: st.info("Upload notes first")
+    if not st.session_state.note_documents: st.info("Upload notes first")
     else:
         if st.button("Generate Summary"):
             with st.spinner("Generating Summary..."):
                 prompt = f"""
-Summarize notes into key points, definitions, and 5-bullet summary.
+Summarize the notes into:
+- overall key themes
+- important definitions
+- a 5-bullet summary
+- a short section showing which note labels/titles contributed to each major theme
 
 Notes:
-{st.session_state.notes[:4000]}
+{build_notes_context(4500)}
 """
                 summary = call_ai(prompt)
                 st.markdown("### 📘 Notes Summary")
@@ -852,7 +998,7 @@ Notes:
 
 # ================= STUDY PLAN =================
 elif menu == "Study Plan":
-    if not st.session_state.notes:
+    if not st.session_state.note_documents:
         st.info("Upload notes first")
     else:
         if not st.session_state.topics:
@@ -867,7 +1013,8 @@ elif menu == "Study Plan":
                     plan = generator.generate_detailed_study_plan(
                         st.session_state.topics,
                         st.session_state.notes,
-                        total_hours=total_hours
+                        total_hours=total_hours,
+                        note_documents=st.session_state.note_documents
                     )
                     st.session_state.study_plan = plan
                 if not st.session_state.study_plan:
@@ -883,7 +1030,8 @@ elif menu == "Study Plan":
                         st.session_state.topics,
                         st.session_state.notes,
                         total_days=total_days,
-                        hours_per_day=hours_per_day
+                        hours_per_day=hours_per_day,
+                        note_documents=st.session_state.note_documents
                     )
                     st.session_state.study_plan = plan
                 if not st.session_state.study_plan:
@@ -906,7 +1054,8 @@ elif menu == "Study Plan":
                         ">
                         <b style="color: {text_color};">{item['time']}</b><br>
                         <span style="color:{accent_color}; font-weight: 600;">{item['topic']}</span><br>
-                        <span style="color: {text_color};">{item['task']}</span>
+                        <span style="color: {text_color};">{item['task']}</span><br>
+                        <span style="color: {accent_color}; font-size: 12px;">References: {format_note_references(item.get('source_note_ids'))}</span>
                         </div>
                         """,
                         unsafe_allow_html=True
@@ -918,16 +1067,31 @@ elif menu=="Progress":
     else:
         st.markdown("## 📊 Progress Report")
         stats = defaultdict(lambda: {"correct":0,"total":0})
+        note_stats = defaultdict(lambda: {"correct":0,"total":0})
         for a in st.session_state.answers:
             stats[a["topic"]]["total"] +=1
             if str(a["selected"]).strip().lower() == str(a["correct"]).strip().lower():
                 stats[a["topic"]]["correct"] +=1
+            for note_id in a.get("source_note_ids", []):
+                note_stats[note_id]["total"] += 1
+                if str(a["selected"]).strip().lower() == str(a["correct"]).strip().lower():
+                    note_stats[note_id]["correct"] += 1
         for topic, s in stats.items():
             acc = s["correct"]/s["total"]
             st.write(f"### {topic}: {s['correct']}/{s['total']} correct ({acc*100:.1f}%)")
             if acc>=0.8: st.success("Strong understanding ✅")
             elif acc>=0.5: st.warning("Needs more effort ⚠️")
             else: st.error("High focus required ❗")
+
+        if note_stats:
+            st.markdown("## 🗂 Progress By Note")
+            note_map = get_note_map()
+            for note_id, s in note_stats.items():
+                note_doc = note_map.get(note_id)
+                if not note_doc:
+                    continue
+                acc = s["correct"] / s["total"]
+                st.write(f"### {note_doc['display_label']} - {note_doc['title']}: {s['correct']}/{s['total']} correct ({acc*100:.1f}%)")
 
 st.divider()
 st.caption("Your AI Study Buddy 🚀")
