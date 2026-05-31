@@ -109,7 +109,19 @@ class OAuthHandler:
             }
             
             response = requests.post(OAuthHandler.GOOGLE_TOKEN_URL, data=token_payload)
-            response.raise_for_status()
+            if not response.ok:
+                try:
+                    error_data = response.json()
+                except ValueError:
+                    error_data = {"error": response.text}
+
+                return {
+                    "success": False,
+                    "error": error_data.get("error", f"HTTP {response.status_code}"),
+                    "error_description": error_data.get("error_description", response.text),
+                    "redirect_uri": redirect_uri,
+                    "status_code": response.status_code
+                }
             
             token_data = response.json()
             return {

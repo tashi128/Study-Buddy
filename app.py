@@ -37,7 +37,8 @@ if "code" in st.query_params and not st.session_state.get("authenticated"):
     if isinstance(auth_code, list):
         auth_code = auth_code[0] if auth_code else None
 
-    if auth_code:
+    if auth_code and st.session_state.get("last_oauth_code") != auth_code:
+        st.session_state.last_oauth_code = auth_code
         token_result = OAuthHandler.exchange_google_code_for_token(auth_code)
         if token_result.get("success"):
             user_info_result = OAuthHandler.get_google_user_info(token_result.get("access_token"))
@@ -70,6 +71,7 @@ if "code" in st.query_params and not st.session_state.get("authenticated"):
         else:
             st.error("Failed to exchange Google authorization code.")
             st.info(f"token_result: {token_result}")
+            st.info(f"Google redirect URI used: {OAuthHandler._get_google_redirect_uri()}")
 
 # Check if user is authenticated - if not, show landing page
 if not is_authenticated():
