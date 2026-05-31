@@ -19,20 +19,44 @@ except Exception:
     pass
 
 
+def _read_setting(name, default=""):
+    """Read config from env first, then Streamlit secrets."""
+    value = os.getenv(name)
+    if value not in (None, ""):
+        return value
+
+    try:
+        secret_value = st.secrets.get(name)
+        if secret_value not in (None, ""):
+            return str(secret_value)
+    except Exception:
+        pass
+
+    return default
+
+
 class OAuthHandler:
     """Manages OAuth authentication for Google and Apple"""
     
     # OAuth Configuration
     # These should be set via environment variables or Streamlit secrets
-    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com")
-    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "YOUR_GOOGLE_CLIENT_SECRET")
-    # App root callback for Streamlit; keep this in sync with Google Console.
-    GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8501")
+    GOOGLE_CLIENT_ID = _read_setting("GOOGLE_CLIENT_ID", "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com")
+    GOOGLE_CLIENT_SECRET = _read_setting("GOOGLE_CLIENT_SECRET", "YOUR_GOOGLE_CLIENT_SECRET")
+    GOOGLE_REDIRECT_URI = _read_setting("GOOGLE_REDIRECT_URI", "")
+    APP_BASE_URL = _read_setting("APP_BASE_URL", _read_setting("PUBLIC_BASE_URL", ""))
+
+    APPLE_TEAM_ID = _read_setting("APPLE_TEAM_ID", "YOUR_APPLE_TEAM_ID")
+    APPLE_CLIENT_ID = _read_setting("APPLE_CLIENT_ID", "YOUR_APPLE_CLIENT_ID")
+    APPLE_KEY_ID = _read_setting("APPLE_KEY_ID", "YOUR_APPLE_KEY_ID")
+    APPLE_PRIVATE_KEY = _read_setting("APPLE_PRIVATE_KEY", "")
+    APPLE_REDIRECT_URI = _read_setting("APPLE_REDIRECT_URI", "")
     
     # OAuth URLs
     GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
     GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
     GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+    APPLE_AUTH_URL = "https://appleid.apple.com/auth/authorize"
+    APPLE_TOKEN_URL = "https://appleid.apple.com/auth/token"
     
 
     @staticmethod
@@ -98,15 +122,37 @@ class OAuthHandler:
 
     @staticmethod
     def _get_google_redirect_uri():
-        """Normalize redirect URI so auth and token exchange always use the exact same value."""
-        uri = (OAuthHandler.GOOGLE_REDIRECT_URI or "").strip()
-        if not uri:
-            return "http://localhost:8501"
-        # Normalize localhost root to avoid slash/no-slash mismatches in Google config.
+        """Return an exact redirect URI that matches Google Console configuration."""
+        configured_uri = (OAuthHandler.GOOGLE_REDIRECT_URI or "").strip()
+        if configured_uri:
+            return OAuthHandler._normalize_redirect_uri(configured_uri)
+
+        base_url = OAuthHandler._get_public_base_url()
+        if base_url:
+            return base_url
+
+        return "http://localhost:8501"
+
+    @staticmethod
+    def _get_public_base_url():
+        """Return the public HTTPS base URL for deployed environments, if configured."""
+        base_url = (OAuthHandler.APP_BASE_URL or "").strip()
+        if not base_url:
+            return ""
+
+        parsed = urlparse(base_url)
+        if not parsed.scheme:
+            base_url = f"https://{base_url}"
+
+        return base_url.rstrip("/")
+
+    @staticmethod
+    def _normalize_redirect_uri(uri):
+        """Normalize redirect URIs so auth and token exchange always use the exact same value."""
         parsed = urlparse(uri)
-        if parsed.hostname in {"localhost", "127.0.0.1"} and parsed.path == "/":
+        if parsed.hostname in {"localhost", "127.0.0.1"} and parsed.path in {"", "/"}:
             return uri.rstrip("/")
-        return uri
+        return uri.rstrip("/") if parsed.path == "/" else uri
     
     @staticmethod
     def get_google_user_info(access_token):
@@ -235,12 +281,15 @@ class OAuthHandler:
         2. **Get Google credentials** from [Google Cloud Console](https://console.cloud.google.com/):
            - Go to APIs & Services → Credentials
            - Create OAuth 2.0 credentials for Web application
-           - Add your Client ID and Client Secret to `.env`
-        
+           - Add your Client ID, Client Secret, and deployed HTTPS app URL to `.env`
+
         3. **Get Apple credentials** from [Apple Developer](https://developer.apple.com/):
            - Go to Certificates, Identifiers & Profiles
            - Create a Service ID and get your Team ID, Key ID, and Private Key
            - Add them to `.env`
+
+        **Production tip:** Set `APP_BASE_URL=https://your-public-app-url`
+        so Google redirects back to the same secure domain on mobile.
         
         **See `OAUTH_SETUP.md` for detailed step-by-step instructions.**
         

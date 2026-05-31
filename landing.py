@@ -437,7 +437,7 @@ def show_landing_page():
                 google_auth_url = OAuthHandler.get_google_auth_url()
                 if google_auth_url:
                     st.markdown(f'''
-                    <a href="{google_auth_url}" target="_self" class="google-auth-btn">
+                    <a href="{google_auth_url}" target="_top" class="google-auth-btn">
                         <svg class="google-logo" viewBox="0 0 24 24" aria-hidden="true">
                             <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.6 3.9-5.4 3.9-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3.1.8 3.8 1.4l2.6-2.5C16.7 3.3 14.5 2.4 12 2.4 6.9 2.4 2.8 6.6 2.8 11.9S6.9 21.4 12 21.4c6.9 0 9.2-4.9 9.2-7.4 0-.5-.1-.9-.1-1.2z"/>
                             <path fill="#34A853" d="M3.8 7.3l3.2 2.4C7.8 8 9.7 6.6 12 6.6c1.8 0 3.1.8 3.8 1.4l2.6-2.5C16.7 3.3 14.5 2.4 12 2.4 8.4 2.4 5.2 4.4 3.8 7.3z"/>

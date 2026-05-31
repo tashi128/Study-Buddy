@@ -3,6 +3,8 @@
 ## Overview
 Study Buddy now supports OAuth login with Google and Apple. Follow these steps to set up OAuth credentials for both providers.
 
+For phone sign-in, your deployed app must use a public `https://` URL and open Google sign-in in a normal browser window. Google can block OAuth inside embedded webviews or iframe-only flows.
+
 ---
 
 ## Google Sign-In Setup
@@ -13,10 +15,11 @@ Study Buddy now supports OAuth login with Google and Apple. Follow these steps t
 3. Enter "Study Buddy" as the project name
 4. Click "Create"
 
-### Step 2: Enable Google+ API
-1. In the Cloud Console, go to "APIs & Services" > "Library"
-2. Search for "Google+ API"
-3. Click on it and press "Enable"
+### Step 2: Configure OAuth Consent Screen
+1. In the Cloud Console, go to "APIs & Services" > "OAuth consent screen"
+2. Choose the appropriate user type
+3. Fill in your app name, support email, and developer contact email
+4. If this is a production app, add your home page, privacy policy, and terms of service URLs
 
 ### Step 3: Create OAuth 2.0 Credentials
 1. Go to "APIs & Services" > "Credentials"
@@ -25,10 +28,14 @@ Study Buddy now supports OAuth login with Google and Apple. Follow these steps t
 4. Add these Authorized JavaScript origins:
    - `http://localhost:8501`
    - `http://127.0.0.1:8501`
-5. Add this Authorized redirect URI (exact match required):
+5. Add these Authorized redirect URIs (exact match required):
    - `http://localhost:8501`
-6. Click "Create"
-7. Copy your **Client ID** and **Client Secret**
+   - `http://127.0.0.1:8501`
+6. If you are deploying publicly, also add your real HTTPS app URL:
+   - Authorized JavaScript origin example: `https://your-app-name.streamlit.app`
+   - Authorized redirect URI example: `https://your-app-name.streamlit.app`
+7. Click "Create"
+8. Copy your **Client ID** and **Client Secret**
 
 ### Step 4: Add to Environment
 Create a `.env` file in the project root:
@@ -36,7 +43,12 @@ Create a `.env` file in the project root:
 ```bash
 GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:8501
+APP_BASE_URL=https://your-app-name.streamlit.app
+
+# Optional:
+# Leave GOOGLE_REDIRECT_URI blank to reuse APP_BASE_URL.
+# For local development, set GOOGLE_REDIRECT_URI=http://localhost:8501
+GOOGLE_REDIRECT_URI=
 ```
 
 Or add to Streamlit secrets in `.streamlit/secrets.toml`:
@@ -44,8 +56,15 @@ Or add to Streamlit secrets in `.streamlit/secrets.toml`:
 ```toml
 GOOGLE_CLIENT_ID = "your_client_id.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET = "your_client_secret"
-GOOGLE_REDIRECT_URI = "http://localhost:8501"
+APP_BASE_URL = "https://your-app-name.streamlit.app"
+GOOGLE_REDIRECT_URI = ""
 ```
+
+### Step 5: Test in a Secure Browser
+1. Open the deployed app directly in Safari or Chrome
+2. Tap **Continue with Google**
+3. If the app is embedded in another site, the OAuth flow must open in the top-level browser window
+4. If Google still shows `access blocked`, verify that the exact HTTPS redirect URI in Google Cloud matches your deployed app URL
 
 ---
 
@@ -148,8 +167,9 @@ APPLE_REDIRECT_URI = "http://localhost:8501/auth/apple/callback"
 
 For production deployment, you'll need to:
 
-1. **Update URLs**: Replace `http://localhost:8501` with your production domain
-   - Example: `https://studybuddy.example.com`
+1. **Set a public app URL**:
+   - Example: `APP_BASE_URL=https://studybuddy.example.com`
+   - For Streamlit Community Cloud, this is usually your `https://<subdomain>.streamlit.app` URL
 
 2. **Use HTTPS**: OAuth requires secure connections in production
 
@@ -158,10 +178,14 @@ For production deployment, you'll need to:
    - Never commit `.env` file to git
 
 4. **Update OAuth providers**:
-   - Add your production domain to Google Cloud Console
+   - Add your production domain to Google Cloud Console as both an Authorized JavaScript origin and Authorized redirect URI
    - Add your production domain to Apple Developer account
 
 5. **Set up OAuth callback handler** in `app.py` to handle redirect and create/login user automatically
+
+6. **Avoid embedded browsers**:
+   - Test on phone from Safari or Chrome
+   - Avoid opening Google sign-in from in-app browsers like Instagram, Facebook, or Gmail
 
 ---
 
@@ -174,10 +198,17 @@ For production deployment, you'll need to:
 ### "Redirect URI mismatch" error
 - Ensure the redirect URI in code matches exactly what's registered
 - Check for trailing slashes and case sensitivity
+- If you use `APP_BASE_URL`, make sure it exactly matches the deployed HTTPS URL
 
 ### Apple key not loading
 - Verify the private key is properly formatted (with \n for newlines)
 - Make sure you're using EC private key, not RSA
+
+### Google says "Access blocked" or mentions "Use secure browsers"
+- Open the app in Safari or Chrome, not an in-app browser
+- Make sure the sign-in flow opens in the top-level browser window
+- Verify the deployed app URL is HTTPS and registered in Google Cloud Console
+- Check that your OAuth consent screen and app URLs are configured for production use
 
 ### User info not being retrieved
 - Check that scopes are correct (`openid email profile` for Google, `name email` for Apple)

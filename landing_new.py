@@ -386,7 +386,7 @@ def show_landing_page():
             google_auth_url = OAuthHandler.get_google_auth_url()
             if google_auth_url:
                 st.markdown(f'''
-                <a href="{google_auth_url}" target="_blank" class="premium-btn btn-google">
+                <a href="{google_auth_url}" target="_top" class="premium-btn btn-google">
                     <span>🔵 Continue with Google</span>
                 </a>
                 ''', unsafe_allow_html=True)
