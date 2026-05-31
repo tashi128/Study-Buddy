@@ -4,7 +4,7 @@ Modern, minimal, Apple-inspired design with premium SaaS aesthetics
 """
 
 import streamlit as st
-from auth import auth_db, is_authenticated, get_current_user
+from auth import auth_db, is_authenticated, get_current_user, start_guest_session
 from oauth_handler import OAuthHandler
 
 
@@ -291,6 +291,15 @@ def show_landing_page():
         padding: 2px 6px;
         border-radius: 8px;
     }
+
+    .helper-note {
+        margin: 10px 0 18px 0;
+        color: rgba(255, 255, 255, 0.72);
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 13px;
+        line-height: 1.55;
+        text-align: center;
+    }
     
     .premium-btn:hover::before {
         left: 100%;
@@ -438,11 +447,16 @@ def show_landing_page():
                     <span>🔵 Continue with Google</span>
                 </a>
                 ''', unsafe_allow_html=True)
+
+            st.markdown(
+                "<p class='helper-note'>For the smoothest experience, open this link in Safari or Chrome. If Google sign-in is blocked, you can still explore Study Buddy in guest mode.</p>",
+                unsafe_allow_html=True
+            )
             
             st.markdown('<div class="divider">Or</div>', unsafe_allow_html=True)
             
             # Sign in/up buttons
-            btn_col1, btn_col2 = st.columns(2, gap="small")
+            btn_col1, btn_col2, btn_col3 = st.columns(3, gap="small")
             
             with btn_col1:
                 if st.button("Sign In", key="cta_signin", use_container_width=True):
@@ -452,6 +466,11 @@ def show_landing_page():
             with btn_col2:
                 if st.button("Create Account", key="cta_create", use_container_width=True):
                     st.session_state.show_signup = True
+                    st.rerun()
+
+            with btn_col3:
+                if st.button("Guest Mode", key="cta_guest", use_container_width=True):
+                    start_guest_session()
                     st.rerun()
             
             st.markdown('</div>', unsafe_allow_html=True)

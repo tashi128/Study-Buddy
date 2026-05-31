@@ -289,6 +289,9 @@ def init_auth_state():
         st.session_state.user_name = None
         st.session_state.user_email = None
         st.session_state.session_token = None
+        st.session_state.is_guest = False
+    elif "is_guest" not in st.session_state:
+        st.session_state.is_guest = False
     
     # Check for existing session in cookies/storage
     if st.session_state.session_token:
@@ -296,6 +299,7 @@ def init_auth_state():
         if not result["valid"]:
             st.session_state.authenticated = False
             st.session_state.session_token = None
+            st.session_state.is_guest = False
 
 
 def is_authenticated() -> bool:
@@ -308,8 +312,19 @@ def get_current_user() -> dict:
     return {
         "user_id": st.session_state.get("user_id"),
         "name": st.session_state.get("user_name"),
-        "email": st.session_state.get("user_email")
+        "email": st.session_state.get("user_email"),
+        "is_guest": st.session_state.get("is_guest", False)
     }
+
+
+def start_guest_session():
+    """Create a lightweight guest session without a persisted account."""
+    st.session_state.authenticated = True
+    st.session_state.user_id = "guest"
+    st.session_state.user_name = "Guest User"
+    st.session_state.user_email = "Guest mode"
+    st.session_state.session_token = None
+    st.session_state.is_guest = True
 
 
 def logout():
@@ -322,3 +337,4 @@ def logout():
     st.session_state.user_name = None
     st.session_state.user_email = None
     st.session_state.session_token = None
+    st.session_state.is_guest = False

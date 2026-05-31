@@ -4,7 +4,7 @@ Modern, minimal, Apple-inspired design with premium SaaS aesthetics
 """
 
 import streamlit as st
-from auth import auth_db, is_authenticated, get_current_user
+from auth import auth_db, is_authenticated, get_current_user, start_guest_session
 from oauth_handler import OAuthHandler
 
 
@@ -371,6 +371,15 @@ def show_landing_page():
         vertical-align: middle;
     }
 
+    .helper-note {
+        margin: 10px 0 18px 0;
+        color: rgba(77, 45, 53, 0.72);
+        font-family: 'Manrope', sans-serif;
+        font-size: 13px;
+        line-height: 1.55;
+        text-align: center;
+    }
+
     .stButton > button {
         border-radius: 14px !important;
         border: 1px solid rgba(125, 69, 80, 0.32) !important;
@@ -496,11 +505,16 @@ def show_landing_page():
                         Continue with Google
                     </a>
                     ''', unsafe_allow_html=True)
+
+                st.markdown(
+                    "<p class='helper-note'>For the smoothest experience, open this link in Safari or Chrome. If Google sign-in is blocked, you can still explore Study Buddy in guest mode.</p>",
+                    unsafe_allow_html=True
+                )
                 
                 st.markdown('<div class="divider">Or</div>', unsafe_allow_html=True)
                 
                 # Sign in/up buttons
-                btn_col1, btn_col2 = st.columns(2, gap="small")
+                btn_col1, btn_col2, btn_col3 = st.columns(3, gap="small")
                 
                 with btn_col1:
                     if st.button("Sign In", key="cta_signin", use_container_width=True):
@@ -510,6 +524,11 @@ def show_landing_page():
                 with btn_col2:
                     if st.button("Create Account", key="cta_create", use_container_width=True):
                         st.session_state.show_signup = True
+                        st.rerun()
+
+                with btn_col3:
+                    if st.button("Guest Mode", key="cta_guest", use_container_width=True):
+                        start_guest_session()
                         st.rerun()
             
             # Login Form
@@ -534,6 +553,7 @@ def show_landing_page():
                             st.session_state.user_name = result["name"]
                             st.session_state.user_email = login_email
                             st.session_state.session_token = result["session_token"]
+                            st.session_state.is_guest = False
                             st.success("✅ Login successful!")
                             st.rerun()
                         else:

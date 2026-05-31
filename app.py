@@ -59,6 +59,7 @@ if "code" in st.query_params and not st.session_state.get("authenticated"):
                 st.session_state.user_name = login_result.get("name")
                 st.session_state.user_email = email
                 st.session_state.session_token = login_result.get("session_token")
+                st.session_state.is_guest = False
 
                 # Remove code from URL, then rerun into authenticated app state
                 st.query_params.clear()
@@ -582,7 +583,7 @@ st.caption("AI-powered smart study assistant")
 # ================= SIDEBAR =================
 user = get_current_user()
 st.sidebar.markdown(f"**👤 {user['name']}**")
-st.sidebar.caption(user['email'])
+st.sidebar.caption("Guest mode" if user.get("is_guest") else user["email"])
 
 menu = st.sidebar.radio(
     "Navigation",
