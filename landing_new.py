@@ -259,6 +259,38 @@ def show_landing_page():
         transition: left 0.4s ease;
         z-index: 0;
     }
+
+    .inapp-browser-warning {
+        display: none;
+        margin: 0 0 18px 0;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(22, 14, 37, 0.82);
+        color: rgba(255, 255, 255, 0.9);
+        font-family: 'Space Grotesk', sans-serif;
+        text-align: left;
+    }
+
+    .inapp-browser-warning strong {
+        display: block;
+        margin-bottom: 6px;
+        color: #ffffff;
+        font-size: 14px;
+    }
+
+    .inapp-browser-warning p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .inapp-browser-warning code {
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 2px 6px;
+        border-radius: 8px;
+    }
     
     .premium-btn:hover::before {
         left: 100%;
@@ -385,8 +417,24 @@ def show_landing_page():
             # Google button
             google_auth_url = OAuthHandler.get_google_auth_url()
             if google_auth_url:
+                st.markdown("""
+                <div id="inapp-browser-warning" class="inapp-browser-warning">
+                    <strong>Open Study Buddy in Safari or Chrome</strong>
+                    <p>Google sign-in is blocked inside LinkedIn, Instagram, Facebook, and other in-app browsers. Use the browser menu and choose <code>Open in browser</code>, then try Google again.</p>
+                </div>
+                <script>
+                (function() {
+                    const ua = navigator.userAgent || "";
+                    const isInAppBrowser = /(LinkedInApp|Instagram|FBAN|FBAV|FB_IAB|Messenger|Line|TikTok|Twitter|Snapchat)/i.test(ua);
+                    const warning = window.parent.document.getElementById("inapp-browser-warning") || document.getElementById("inapp-browser-warning");
+                    if (warning && isInAppBrowser) {
+                        warning.style.display = "block";
+                    }
+                })();
+                </script>
+                """, unsafe_allow_html=True)
                 st.markdown(f'''
-                <a href="{google_auth_url}" target="_top" class="premium-btn btn-google">
+                <a href="{google_auth_url}" target="_top" rel="noopener noreferrer" class="premium-btn btn-google">
                     <span>🔵 Continue with Google</span>
                 </a>
                 ''', unsafe_allow_html=True)
